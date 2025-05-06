@@ -1,0 +1,4 @@
+module walletkitFFI {
+    header "walletkitFFI.h"
+    export *
+}

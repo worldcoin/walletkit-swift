@@ -24,4 +24,4 @@ let package = Package(
         .binaryTarget(name: "walletkit_FFI", path: "WalletKit.xcframework")
     ]
 )
-// Release version: 0.0.14
+// Release version: 0.0.15

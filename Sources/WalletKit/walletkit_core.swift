@@ -538,6 +538,172 @@ fileprivate struct FfiConverterData: FfiConverterRustBuffer {
 
 
 /**
+ * Allows interacting with the `WorldIDAddressBook` contract.
+ *
+ * The address book allows users to verify their Wallet Address as Orb verified for a period of time.
+ *
+ * Usage of `AddressBook` requires the `legacy-nullifiers` feature flag.
+ *
+ * The contract of the address book can be found at: `0x57b930d551e677cc36e2fa036ae2fe8fdae0330d`
+ */
+public protocol AddressBookProtocol: AnyObject, Sendable {
+    
+    /**
+     * Generates a proof context for the `WorldIDAddressBook` contract to use in a World ID Proof.
+     *
+     * # Errors
+     * - Returns an error if the address is not a valid EVM address.
+     * - Returns an error if the timestamp is not a valid numeric timestamp.
+     */
+    func generateProofContext(addressToVerify: String, timestamp: UInt64) throws  -> ProofContext
+    
+}
+/**
+ * Allows interacting with the `WorldIDAddressBook` contract.
+ *
+ * The address book allows users to verify their Wallet Address as Orb verified for a period of time.
+ *
+ * Usage of `AddressBook` requires the `legacy-nullifiers` feature flag.
+ *
+ * The contract of the address book can be found at: `0x57b930d551e677cc36e2fa036ae2fe8fdae0330d`
+ */
+open class AddressBook: AddressBookProtocol, @unchecked Sendable {
+    fileprivate let pointer: UnsafeMutableRawPointer!
+
+    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoPointer {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
+        self.pointer = pointer
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noPointer: NoPointer) {
+        self.pointer = nil
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_addressbook(self.pointer, $0) }
+    }
+    /**
+     * Initializes a new `AddressBook` instance.
+     */
+public convenience init() {
+    let pointer =
+        try! rustCall() {
+    uniffi_walletkit_core_fn_constructor_addressbook_new($0
+    )
+}
+    self.init(unsafeFromRawPointer: pointer)
+}
+
+    deinit {
+        guard let pointer = pointer else {
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_addressbook(pointer, $0) }
+    }
+
+    
+
+    
+    /**
+     * Generates a proof context for the `WorldIDAddressBook` contract to use in a World ID Proof.
+     *
+     * # Errors
+     * - Returns an error if the address is not a valid EVM address.
+     * - Returns an error if the timestamp is not a valid numeric timestamp.
+     */
+open func generateProofContext(addressToVerify: String, timestamp: UInt64)throws  -> ProofContext  {
+    return try  FfiConverterTypeProofContext_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+    uniffi_walletkit_core_fn_method_addressbook_generate_proof_context(self.uniffiClonePointer(),
+        FfiConverterString.lower(addressToVerify),
+        FfiConverterUInt64.lower(timestamp),$0
+    )
+})
+}
+    
+
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAddressBook: FfiConverter {
+
+    typealias FfiType = UnsafeMutableRawPointer
+    typealias SwiftType = AddressBook
+
+    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> AddressBook {
+        return AddressBook(unsafeFromRawPointer: pointer)
+    }
+
+    public static func lower(_ value: AddressBook) -> UnsafeMutableRawPointer {
+        return value.uniffiClonePointer()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AddressBook {
+        let v: UInt64 = try readInt(&buf)
+        // The Rust code won't compile if a pointer won't fit in a UInt64.
+        // We have to go via `UInt` because that's the thing that's the size of a pointer.
+        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
+        if (ptr == nil) {
+            throw UniffiInternalError.unexpectedNullPointer
+        }
+        return try lift(ptr!)
+    }
+
+    public static func write(_ value: AddressBook, into buf: inout [UInt8]) {
+        // This fiddling is because `Int` is the thing that's the same size as a pointer.
+        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
+        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAddressBook_lift(_ pointer: UnsafeMutableRawPointer) throws -> AddressBook {
+    return try FfiConverterTypeAddressBook.lift(pointer)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAddressBook_lower(_ value: AddressBook) -> UnsafeMutableRawPointer {
+    return FfiConverterTypeAddressBook.lower(value)
+}
+
+
+
+
+
+
+/**
  * The Authenticator is the main component with which users interact with the World ID Protocol.
  */
 public protocol AuthenticatorProtocol: AnyObject, Sendable {
@@ -1581,6 +1747,68 @@ public convenience init(appId: String, action: String?, signal: String?, credent
         try! rustCall { uniffi_walletkit_core_fn_free_proofcontext(pointer, $0) }
     }
 
+    
+    /**
+     * LEGACY AND ADVANCED USE ONLY.
+     *
+     * Initializes a `ProofContext` from an arbitrary pre-image for an external nullifier.
+     *
+     * This is used for legacy nullifiers which were constructed from arbitrary bytes which don't follow
+     * the `app_id` and `action` standard.
+     *
+     * # Usage (Non-exhaustive)
+     *
+     * - This is used for the World ID Address Book.
+     *
+     * # Arguments
+     *
+     * * `external_nullifier` - An arbitrary array of bytes that will be hashed to produce the external nullifier.
+     * * `credential_type` - The type of credential being requested.
+     * * `signal` - Optional. The signal is included in the ZKP and is committed to in the proof.
+     */
+public static func legacyNewFromPreImageExternalNullifier(externalNullifier: Data, credentialType: CredentialType, signal: Data?, requireMinedProof: Bool) -> ProofContext  {
+    return try!  FfiConverterTypeProofContext_lift(try! rustCall() {
+    uniffi_walletkit_core_fn_constructor_proofcontext_legacy_new_from_pre_image_external_nullifier(
+        FfiConverterData.lower(externalNullifier),
+        FfiConverterTypeCredentialType_lower(credentialType),
+        FfiConverterOptionData.lower(signal),
+        FfiConverterBool.lower(requireMinedProof),$0
+    )
+})
+}
+    
+    /**
+     * LEGACY AND ADVANCED USE ONLY.
+     *
+     * Initializes a `ProofContext` from a raw external nullifier.
+     *
+     * This is used for legacy nullifiers which were constructed from raw field elements.
+     *
+     * # Usage (Non-exhaustive)
+     *
+     * - This is used for Recurring Grant Claims (Worldcoin Airdrop).
+     * - This is used to verify a World App account.
+     *
+     * # Arguments
+     *
+     * * `external_nullifier` - The raw external nullifier. Must already be a number in the field. No additional hashing is performed.
+     * * `credential_type` - The type of credential being requested.
+     * * `signal` - Optional. The signal is included in the ZKP and is committed to in the proof.
+     *
+     * # Errors
+     *
+     * - Returns an error if the external nullifier is not a valid number in the field.
+     */
+public static func legacyNewFromRawExternalNullifier(externalNullifier: U256Wrapper, credentialType: CredentialType, signal: Data?, requireMinedProof: Bool)throws  -> ProofContext  {
+    return try  FfiConverterTypeProofContext_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+    uniffi_walletkit_core_fn_constructor_proofcontext_legacy_new_from_raw_external_nullifier(
+        FfiConverterTypeU256Wrapper_lower(externalNullifier),
+        FfiConverterTypeCredentialType_lower(credentialType),
+        FfiConverterOptionData.lower(signal),
+        FfiConverterBool.lower(requireMinedProof),$0
+    )
+})
+}
     
     /**
      * Initializes a `Proof::ProofContext` where the `action` is provided as raw bytes. This is useful for advanced cases
@@ -3324,6 +3552,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_func_set_logger() != 57797) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_method_addressbook_generate_proof_context() != 65509) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_method_authenticator_get_packed_account_data_remote() != 45) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3387,6 +3618,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_worldid_is_equal_to() != 12875) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_constructor_addressbook_new() != 33384) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_constructor_authenticator_init() != 17812) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -3409,6 +3643,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_merkletreeproof_from_json_proof() != 37954) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_constructor_proofcontext_legacy_new_from_pre_image_external_nullifier() != 18235) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_constructor_proofcontext_legacy_new_from_raw_external_nullifier() != 7785) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_proofcontext_new() != 53136) {

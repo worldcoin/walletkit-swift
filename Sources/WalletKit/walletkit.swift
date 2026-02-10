@@ -352,19 +352,29 @@ private func uniffiTraitInterfaceCallWithError<T, E>(
         callStatus.pointee.errorBuf = FfiConverterString.lower(String(describing: error))
     }
 }
+// Initial value and increment amount for handles. 
+// These ensure that SWIFT handles always have the lowest bit set
+fileprivate let UNIFFI_HANDLEMAP_INITIAL: UInt64 = 1
+fileprivate let UNIFFI_HANDLEMAP_DELTA: UInt64 = 2
+
 fileprivate final class UniffiHandleMap<T>: @unchecked Sendable {
     // All mutation happens with this lock held, which is why we implement @unchecked Sendable.
     private let lock = NSLock()
     private var map: [UInt64: T] = [:]
-    private var currentHandle: UInt64 = 1
+    private var currentHandle: UInt64 = UNIFFI_HANDLEMAP_INITIAL
 
     func insert(obj: T) -> UInt64 {
         lock.withLock {
-            let handle = currentHandle
-            currentHandle += 1
-            map[handle] = obj
-            return handle
+            return doInsert(obj)
         }
+    }
+
+    // Low-level insert function, this assumes `lock` is held.
+    private func doInsert(_ obj: T) -> UInt64 {
+        let handle = currentHandle
+        currentHandle += UNIFFI_HANDLEMAP_DELTA
+        map[handle] = obj
+        return handle
     }
 
      func get(handle: UInt64) throws -> T {
@@ -373,6 +383,15 @@ fileprivate final class UniffiHandleMap<T>: @unchecked Sendable {
                 throw UniffiInternalError.unexpectedStaleHandle
             }
             return obj
+        }
+    }
+
+     func clone(handle: UInt64) throws -> UInt64 {
+        try lock.withLock {
+            guard let obj = map[handle] else {
+                throw UniffiInternalError.unexpectedStaleHandle
+            }
+            return doInsert(obj)
         }
     }
 
@@ -584,13 +603,13 @@ public protocol AddressBookProtocol: AnyObject, Sendable {
  * The contract of the address book can be found at: `0x57b930d551e677cc36e2fa036ae2fe8fdae0330d`
  */
 open class AddressBook: AddressBookProtocol, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -600,46 +619,47 @@ open class AddressBook: AddressBookProtocol, @unchecked Sendable {
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_walletkit_core_fn_clone_addressbook(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_addressbook(self.handle, $0) }
     }
     /**
      * Initializes a new `AddressBook` instance.
      */
 public convenience init() {
-    let pointer =
+    let handle =
         try! rustCall() {
     uniffi_walletkit_core_fn_constructor_addressbook_new($0
     )
 }
-    self.init(unsafeFromRawPointer: pointer)
+    self.init(unsafeFromHandle: handle)
 }
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_walletkit_core_fn_free_addressbook(pointer, $0) }
+        try! rustCall { uniffi_walletkit_core_fn_free_addressbook(handle, $0) }
     }
 
     
@@ -654,7 +674,8 @@ public convenience init() {
      */
 open func generateProofContext(addressToVerify: String, timestamp: UInt64)throws  -> ProofContext  {
     return try  FfiConverterTypeProofContext_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
-    uniffi_walletkit_core_fn_method_addressbook_generate_proof_context(self.uniffiClonePointer(),
+    uniffi_walletkit_core_fn_method_addressbook_generate_proof_context(
+            self.uniffiCloneHandle(),
         FfiConverterString.lower(addressToVerify),
         FfiConverterUInt64.lower(timestamp),$0
     )
@@ -662,6 +683,7 @@ open func generateProofContext(addressToVerify: String, timestamp: UInt64)throws
 }
     
 
+    
 }
 
 
@@ -669,33 +691,24 @@ open func generateProofContext(addressToVerify: String, timestamp: UInt64)throws
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeAddressBook: FfiConverter {
-
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = AddressBook
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> AddressBook {
-        return AddressBook(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> AddressBook {
+        return AddressBook(unsafeFromHandle: handle)
     }
 
-    public static func lower(_ value: AddressBook) -> UnsafeMutableRawPointer {
-        return value.uniffiClonePointer()
+    public static func lower(_ value: AddressBook) -> UInt64 {
+        return value.uniffiCloneHandle()
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AddressBook {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: AddressBook, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -703,14 +716,14 @@ public struct FfiConverterTypeAddressBook: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeAddressBook_lift(_ pointer: UnsafeMutableRawPointer) throws -> AddressBook {
-    return try FfiConverterTypeAddressBook.lift(pointer)
+public func FfiConverterTypeAddressBook_lift(_ handle: UInt64) throws -> AddressBook {
+    return try FfiConverterTypeAddressBook.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeAddressBook_lower(_ value: AddressBook) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeAddressBook_lower(_ value: AddressBook) -> UInt64 {
     return FfiConverterTypeAddressBook.lower(value)
 }
 
@@ -756,13 +769,13 @@ public protocol AtomicBlobStore: AnyObject, Sendable {
  * Atomic blob store for small binary files (e.g., `account_keys.bin`).
  */
 open class AtomicBlobStoreImpl: AtomicBlobStore, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -772,36 +785,37 @@ open class AtomicBlobStoreImpl: AtomicBlobStore, @unchecked Sendable {
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_walletkit_core_fn_clone_atomicblobstore(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_atomicblobstore(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_walletkit_core_fn_free_atomicblobstore(pointer, $0) }
+        try! rustCall { uniffi_walletkit_core_fn_free_atomicblobstore(handle, $0) }
     }
 
     
@@ -816,7 +830,8 @@ open class AtomicBlobStoreImpl: AtomicBlobStore, @unchecked Sendable {
      */
 open func read(path: String)throws  -> Data?  {
     return try  FfiConverterOptionData.lift(try rustCallWithError(FfiConverterTypeStorageError_lift) {
-    uniffi_walletkit_core_fn_method_atomicblobstore_read(self.uniffiClonePointer(),
+    uniffi_walletkit_core_fn_method_atomicblobstore_read(
+            self.uniffiCloneHandle(),
         FfiConverterString.lower(path),$0
     )
 })
@@ -830,7 +845,8 @@ open func read(path: String)throws  -> Data?  {
      * Returns an error if the write fails.
      */
 open func writeAtomic(path: String, bytes: Data)throws   {try rustCallWithError(FfiConverterTypeStorageError_lift) {
-    uniffi_walletkit_core_fn_method_atomicblobstore_write_atomic(self.uniffiClonePointer(),
+    uniffi_walletkit_core_fn_method_atomicblobstore_write_atomic(
+            self.uniffiCloneHandle(),
         FfiConverterString.lower(path),
         FfiConverterData.lower(bytes),$0
     )
@@ -845,14 +861,17 @@ open func writeAtomic(path: String, bytes: Data)throws   {try rustCallWithError(
      * Returns an error if the delete fails.
      */
 open func delete(path: String)throws   {try rustCallWithError(FfiConverterTypeStorageError_lift) {
-    uniffi_walletkit_core_fn_method_atomicblobstore_delete(self.uniffiClonePointer(),
+    uniffi_walletkit_core_fn_method_atomicblobstore_delete(
+            self.uniffiCloneHandle(),
         FfiConverterString.lower(path),$0
     )
 }
 }
     
 
+    
 }
+
 
 
 // Put the implementation in a struct so we don't pollute the top-level namespace
@@ -864,6 +883,20 @@ fileprivate struct UniffiCallbackInterfaceAtomicBlobStore {
     // This creates 1-element array, since this seems to be the only way to construct a const
     // pointer that we can pass to the Rust code.
     static let vtable: [UniffiVTableCallbackInterfaceAtomicBlobStore] = [UniffiVTableCallbackInterfaceAtomicBlobStore(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeAtomicBlobStore.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface AtomicBlobStore: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeAtomicBlobStore.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface AtomicBlobStore: handle missing in uniffiClone")
+            }
+        },
         read: { (
             uniffiHandle: UInt64,
             path: RustBuffer,
@@ -940,12 +973,6 @@ fileprivate struct UniffiCallbackInterfaceAtomicBlobStore {
                 writeReturn: writeReturn,
                 lowerError: FfiConverterTypeStorageError_lower
             )
-        },
-        uniffiFree: { (uniffiHandle: UInt64) -> () in
-            let result = try? FfiConverterTypeAtomicBlobStore.handleMap.remove(handle: uniffiHandle)
-            if result == nil {
-                print("Uniffi callback interface AtomicBlobStore: handle missing in uniffiFree")
-            }
         }
     )]
 }
@@ -954,42 +981,43 @@ private func uniffiCallbackInitAtomicBlobStore() {
     uniffi_walletkit_core_fn_init_callback_vtable_atomicblobstore(UniffiCallbackInterfaceAtomicBlobStore.vtable)
 }
 
-
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeAtomicBlobStore: FfiConverter {
     fileprivate static let handleMap = UniffiHandleMap<AtomicBlobStore>()
 
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = AtomicBlobStore
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> AtomicBlobStore {
-        return AtomicBlobStoreImpl(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> AtomicBlobStore {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return AtomicBlobStoreImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
     }
 
-    public static func lower(_ value: AtomicBlobStore) -> UnsafeMutableRawPointer {
-        guard let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: handleMap.insert(obj: value))) else {
-            fatalError("Cast to UnsafeMutableRawPointer failed")
-        }
-        return ptr
+    public static func lower(_ value: AtomicBlobStore) -> UInt64 {
+         if let rustImpl = value as? AtomicBlobStoreImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AtomicBlobStore {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: AtomicBlobStore, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -997,14 +1025,14 @@ public struct FfiConverterTypeAtomicBlobStore: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeAtomicBlobStore_lift(_ pointer: UnsafeMutableRawPointer) throws -> AtomicBlobStore {
-    return try FfiConverterTypeAtomicBlobStore.lift(pointer)
+public func FfiConverterTypeAtomicBlobStore_lift(_ handle: UInt64) throws -> AtomicBlobStore {
+    return try FfiConverterTypeAtomicBlobStore.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeAtomicBlobStore_lower(_ value: AtomicBlobStore) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeAtomicBlobStore_lower(_ value: AtomicBlobStore) -> UInt64 {
     return FfiConverterTypeAtomicBlobStore.lower(value)
 }
 
@@ -1019,47 +1047,12 @@ public func FfiConverterTypeAtomicBlobStore_lower(_ value: AtomicBlobStore) -> U
 public protocol AuthenticatorProtocol: AnyObject, Sendable {
     
     /**
-     * Fetches an inclusion proof, using the storage cache when possible.
-     *
-     * The cached payload uses `CachedInclusionProof` CBOR encoding and is keyed by
-     * (`registry_kind`, `root`, `leaf_index`).
-     *
-     * Returns the decoded proof with hex-encoded field elements and compressed
-     * authenticator public keys.
-     *
-     * # Errors
-     *
-     * Returns an error if fetching or caching the proof fails.
-     */
-    func fetchInclusionProofCached(storage: CredentialStore, registryKind: UInt8, root: Data, now: UInt64, ttlSeconds: UInt64) async throws  -> InclusionProofPayload
-    
-    /**
-     * Generates a proof and enforces replay safety via storage.
-     *
-     * The proof request and credential are supplied as JSON strings.
-     *
-     * # Errors
-     *
-     * Returns an error if the proof generation or storage update fails.
-     */
-    func generateProofWithReplayGuard(storage: CredentialStore, proofRequestJson: String, credentialJson: String, credentialSubBlindingFactor: U256Wrapper, requestId: Data, now: UInt64, ttlSeconds: UInt64) async throws  -> ReplayGuardResult
-    
-    /**
      * Returns the packed account data for the holder's World ID fetching it from the on-chain registry.
      *
      * # Errors
      * Will error if the provided RPC URL is not valid or if there are RPC call failures.
      */
     func getPackedAccountDataRemote() async throws  -> U256Wrapper
-    
-    /**
-     * Initializes storage using the authenticator's leaf index.
-     *
-     * # Errors
-     *
-     * Returns an error if the leaf index is invalid or storage initialization fails.
-     */
-    func initStorage(storage: CredentialStore, now: UInt64) throws 
     
     /**
      * Returns the leaf index for the holder's World ID.
@@ -1084,18 +1077,27 @@ public protocol AuthenticatorProtocol: AnyObject, Sendable {
      */
     func packedAccountData()  -> U256Wrapper
     
+    /**
+     * Initializes storage using the authenticator's leaf index.
+     *
+     * # Errors
+     *
+     * Returns an error if the leaf index is invalid or storage initialization fails.
+     */
+    func initStorage(now: UInt64) throws 
+    
 }
 /**
  * The Authenticator is the main component with which users interact with the World ID Protocol.
  */
 open class Authenticator: AuthenticatorProtocol, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -1105,36 +1107,37 @@ open class Authenticator: AuthenticatorProtocol, @unchecked Sendable {
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_walletkit_core_fn_clone_authenticator(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_authenticator(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_walletkit_core_fn_free_authenticator(pointer, $0) }
+        try! rustCall { uniffi_walletkit_core_fn_free_authenticator(handle, $0) }
     }
 
     
@@ -1147,64 +1150,16 @@ open class Authenticator: AuthenticatorProtocol, @unchecked Sendable {
      * # Errors
      * Will error if the provided seed is not valid or if the config is not valid.
      */
-public static func `init`(seed: Data, config: String)async throws  -> Authenticator  {
+public static func `init`(seed: Data, config: String, store: CredentialStore)async throws  -> Authenticator  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_walletkit_core_fn_constructor_authenticator_init(FfiConverterData.lower(seed),FfiConverterString.lower(config)
+                uniffi_walletkit_core_fn_constructor_authenticator_init(FfiConverterData.lower(seed),FfiConverterString.lower(config),FfiConverterTypeCredentialStore_lower(store)
                 )
             },
-            pollFunc: ffi_walletkit_core_rust_future_poll_pointer,
-            completeFunc: ffi_walletkit_core_rust_future_complete_pointer,
-            freeFunc: ffi_walletkit_core_rust_future_free_pointer,
-            liftFunc: FfiConverterTypeAuthenticator_lift,
-            errorHandler: FfiConverterTypeWalletKitError_lift
-        )
-}
-    
-    /**
-     * Initializes (if the World ID already exists) or registers a new World ID.
-     *
-     * This method will block until the registration is in a final state (success or terminal error).
-     * See `CoreAuthenticator::init_or_register` for more details.
-     *
-     * # Errors
-     * See `CoreAuthenticator::init_or_register` for potential errors.
-     */
-public static func initOrRegister(seed: Data, config: String, recoveryAddress: String?)async throws  -> Authenticator  {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_walletkit_core_fn_constructor_authenticator_init_or_register(FfiConverterData.lower(seed),FfiConverterString.lower(config),FfiConverterOptionString.lower(recoveryAddress)
-                )
-            },
-            pollFunc: ffi_walletkit_core_rust_future_poll_pointer,
-            completeFunc: ffi_walletkit_core_rust_future_complete_pointer,
-            freeFunc: ffi_walletkit_core_rust_future_free_pointer,
-            liftFunc: FfiConverterTypeAuthenticator_lift,
-            errorHandler: FfiConverterTypeWalletKitError_lift
-        )
-}
-    
-    /**
-     * Initializes (if the World ID already exists) or registers a new World ID with SDK defaults.
-     *
-     * This method will block until the registration is in a final state (success or terminal error).
-     * See `CoreAuthenticator::init_or_register` for more details.
-     *
-     * # Errors
-     * See `CoreAuthenticator::init_or_register` for potential errors.
-     */
-public static func initOrRegisterWithDefaults(seed: Data, rpcUrl: String?, environment: Environment, recoveryAddress: String?)async throws  -> Authenticator  {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_walletkit_core_fn_constructor_authenticator_init_or_register_with_defaults(FfiConverterData.lower(seed),FfiConverterOptionString.lower(rpcUrl),FfiConverterTypeEnvironment_lower(environment),FfiConverterOptionString.lower(recoveryAddress)
-                )
-            },
-            pollFunc: ffi_walletkit_core_rust_future_poll_pointer,
-            completeFunc: ffi_walletkit_core_rust_future_complete_pointer,
-            freeFunc: ffi_walletkit_core_rust_future_free_pointer,
+            pollFunc: ffi_walletkit_core_rust_future_poll_u64,
+            completeFunc: ffi_walletkit_core_rust_future_complete_u64,
+            freeFunc: ffi_walletkit_core_rust_future_free_u64,
             liftFunc: FfiConverterTypeAuthenticator_lift,
             errorHandler: FfiConverterTypeWalletKitError_lift
         )
@@ -1219,78 +1174,22 @@ public static func initOrRegisterWithDefaults(seed: Data, rpcUrl: String?, envir
      * # Errors
      * See `CoreAuthenticator::init` for potential errors.
      */
-public static func initWithDefaults(seed: Data, rpcUrl: String?, environment: Environment)async throws  -> Authenticator  {
+public static func initWithDefaults(seed: Data, rpcUrl: String?, environment: Environment, store: CredentialStore)async throws  -> Authenticator  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_walletkit_core_fn_constructor_authenticator_init_with_defaults(FfiConverterData.lower(seed),FfiConverterOptionString.lower(rpcUrl),FfiConverterTypeEnvironment_lower(environment)
+                uniffi_walletkit_core_fn_constructor_authenticator_init_with_defaults(FfiConverterData.lower(seed),FfiConverterOptionString.lower(rpcUrl),FfiConverterTypeEnvironment_lower(environment),FfiConverterTypeCredentialStore_lower(store)
                 )
             },
-            pollFunc: ffi_walletkit_core_rust_future_poll_pointer,
-            completeFunc: ffi_walletkit_core_rust_future_complete_pointer,
-            freeFunc: ffi_walletkit_core_rust_future_free_pointer,
+            pollFunc: ffi_walletkit_core_rust_future_poll_u64,
+            completeFunc: ffi_walletkit_core_rust_future_complete_u64,
+            freeFunc: ffi_walletkit_core_rust_future_free_u64,
             liftFunc: FfiConverterTypeAuthenticator_lift,
             errorHandler: FfiConverterTypeWalletKitError_lift
         )
 }
     
 
-    
-    /**
-     * Fetches an inclusion proof, using the storage cache when possible.
-     *
-     * The cached payload uses `CachedInclusionProof` CBOR encoding and is keyed by
-     * (`registry_kind`, `root`, `leaf_index`).
-     *
-     * Returns the decoded proof with hex-encoded field elements and compressed
-     * authenticator public keys.
-     *
-     * # Errors
-     *
-     * Returns an error if fetching or caching the proof fails.
-     */
-open func fetchInclusionProofCached(storage: CredentialStore, registryKind: UInt8, root: Data, now: UInt64, ttlSeconds: UInt64)async throws  -> InclusionProofPayload  {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_walletkit_core_fn_method_authenticator_fetch_inclusion_proof_cached(
-                    self.uniffiClonePointer(),
-                    FfiConverterTypeCredentialStore_lower(storage),FfiConverterUInt8.lower(registryKind),FfiConverterData.lower(root),FfiConverterUInt64.lower(now),FfiConverterUInt64.lower(ttlSeconds)
-                )
-            },
-            pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
-            completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
-            freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
-            liftFunc: FfiConverterTypeInclusionProofPayload_lift,
-            errorHandler: FfiConverterTypeWalletKitError_lift
-        )
-}
-    
-    /**
-     * Generates a proof and enforces replay safety via storage.
-     *
-     * The proof request and credential are supplied as JSON strings.
-     *
-     * # Errors
-     *
-     * Returns an error if the proof generation or storage update fails.
-     */
-open func generateProofWithReplayGuard(storage: CredentialStore, proofRequestJson: String, credentialJson: String, credentialSubBlindingFactor: U256Wrapper, requestId: Data, now: UInt64, ttlSeconds: UInt64)async throws  -> ReplayGuardResult  {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_walletkit_core_fn_method_authenticator_generate_proof_with_replay_guard(
-                    self.uniffiClonePointer(),
-                    FfiConverterTypeCredentialStore_lower(storage),FfiConverterString.lower(proofRequestJson),FfiConverterString.lower(credentialJson),FfiConverterTypeU256Wrapper_lower(credentialSubBlindingFactor),FfiConverterData.lower(requestId),FfiConverterUInt64.lower(now),FfiConverterUInt64.lower(ttlSeconds)
-                )
-            },
-            pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
-            completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
-            freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
-            liftFunc: FfiConverterTypeReplayGuardResult_lift,
-            errorHandler: FfiConverterTypeWalletKitError_lift
-        )
-}
     
     /**
      * Returns the packed account data for the holder's World ID fetching it from the on-chain registry.
@@ -1303,31 +1202,16 @@ open func getPackedAccountDataRemote()async throws  -> U256Wrapper  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_walletkit_core_fn_method_authenticator_get_packed_account_data_remote(
-                    self.uniffiClonePointer()
+                    self.uniffiCloneHandle()
                     
                 )
             },
-            pollFunc: ffi_walletkit_core_rust_future_poll_pointer,
-            completeFunc: ffi_walletkit_core_rust_future_complete_pointer,
-            freeFunc: ffi_walletkit_core_rust_future_free_pointer,
+            pollFunc: ffi_walletkit_core_rust_future_poll_u64,
+            completeFunc: ffi_walletkit_core_rust_future_complete_u64,
+            freeFunc: ffi_walletkit_core_rust_future_free_u64,
             liftFunc: FfiConverterTypeU256Wrapper_lift,
             errorHandler: FfiConverterTypeWalletKitError_lift
         )
-}
-    
-    /**
-     * Initializes storage using the authenticator's leaf index.
-     *
-     * # Errors
-     *
-     * Returns an error if the leaf index is invalid or storage initialization fails.
-     */
-open func initStorage(storage: CredentialStore, now: UInt64)throws   {try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
-    uniffi_walletkit_core_fn_method_authenticator_init_storage(self.uniffiClonePointer(),
-        FfiConverterTypeCredentialStore_lower(storage),
-        FfiConverterUInt64.lower(now),$0
-    )
-}
 }
     
     /**
@@ -1338,7 +1222,8 @@ open func initStorage(storage: CredentialStore, now: UInt64)throws   {try rustCa
      */
 open func leafIndex() -> U256Wrapper  {
     return try!  FfiConverterTypeU256Wrapper_lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_authenticator_leaf_index(self.uniffiClonePointer(),$0
+    uniffi_walletkit_core_fn_method_authenticator_leaf_index(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -1350,7 +1235,8 @@ open func leafIndex() -> U256Wrapper  {
      */
 open func onchainAddress() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_authenticator_onchain_address(self.uniffiClonePointer(),$0
+    uniffi_walletkit_core_fn_method_authenticator_onchain_address(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -1363,12 +1249,29 @@ open func onchainAddress() -> String  {
      */
 open func packedAccountData() -> U256Wrapper  {
     return try!  FfiConverterTypeU256Wrapper_lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_authenticator_packed_account_data(self.uniffiClonePointer(),$0
+    uniffi_walletkit_core_fn_method_authenticator_packed_account_data(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
+    /**
+     * Initializes storage using the authenticator's leaf index.
+     *
+     * # Errors
+     *
+     * Returns an error if the leaf index is invalid or storage initialization fails.
+     */
+open func initStorage(now: UInt64)throws   {try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+    uniffi_walletkit_core_fn_method_authenticator_init_storage(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(now),$0
+    )
+}
+}
+    
 
+    
 }
 
 
@@ -1376,33 +1279,24 @@ open func packedAccountData() -> U256Wrapper  {
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeAuthenticator: FfiConverter {
-
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = Authenticator
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> Authenticator {
-        return Authenticator(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> Authenticator {
+        return Authenticator(unsafeFromHandle: handle)
     }
 
-    public static func lower(_ value: Authenticator) -> UnsafeMutableRawPointer {
-        return value.uniffiClonePointer()
+    public static func lower(_ value: Authenticator) -> UInt64 {
+        return value.uniffiCloneHandle()
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Authenticator {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: Authenticator, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -1410,14 +1304,14 @@ public struct FfiConverterTypeAuthenticator: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeAuthenticator_lift(_ pointer: UnsafeMutableRawPointer) throws -> Authenticator {
-    return try FfiConverterTypeAuthenticator.lift(pointer)
+public func FfiConverterTypeAuthenticator_lift(_ handle: UInt64) throws -> Authenticator {
+    return try FfiConverterTypeAuthenticator.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeAuthenticator_lower(_ value: Authenticator) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeAuthenticator_lower(_ value: Authenticator) -> UInt64 {
     return FfiConverterTypeAuthenticator.lower(value)
 }
 
@@ -1430,15 +1324,6 @@ public func FfiConverterTypeAuthenticator_lower(_ value: Authenticator) -> Unsaf
  * Concrete storage implementation backed by `SQLCipher` databases.
  */
 public protocol CredentialStoreProtocol: AnyObject, Sendable {
-    
-    /**
-     * Enforces replay safety for replay guard.
-     *
-     * # Errors
-     *
-     * Returns an error if the disclosure conflicts or storage fails.
-     */
-    func beginReplayGuard(requestId: Data, nullifier: Data, proofBytes: Data, now: UInt64, ttlSeconds: UInt64) throws  -> ReplayGuardResult
     
     /**
      * Initializes storage and validates the account leaf index.
@@ -1465,7 +1350,7 @@ public protocol CredentialStoreProtocol: AnyObject, Sendable {
      *
      * Returns an error if the cache lookup fails.
      */
-    func merkleCacheGet(registryKind: UInt8, root: Data, validBefore: UInt64) throws  -> Data?
+    func merkleCacheGet(validUntil: UInt64) throws  -> Data?
     
     /**
      * Inserts a cached Merkle proof with a TTL.
@@ -1474,16 +1359,7 @@ public protocol CredentialStoreProtocol: AnyObject, Sendable {
      *
      * Returns an error if the cache insert fails.
      */
-    func merkleCachePut(registryKind: UInt8, root: Data, proofBytes: Data, now: UInt64, ttlSeconds: UInt64) throws 
-    
-    /**
-     * Checks for a prior replay guard entry by request id.
-     *
-     * # Errors
-     *
-     * Returns an error if the cache lookup fails.
-     */
-    func replayGuardGet(requestId: Data, now: UInt64) throws  -> Data?
+    func merkleCachePut(proofBytes: Data, now: UInt64, ttlSeconds: UInt64) throws 
     
     /**
      * Returns the storage paths used by this handle.
@@ -1508,13 +1384,13 @@ public protocol CredentialStoreProtocol: AnyObject, Sendable {
  * Concrete storage implementation backed by `SQLCipher` databases.
  */
 open class CredentialStore: CredentialStoreProtocol, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -1524,36 +1400,37 @@ open class CredentialStore: CredentialStoreProtocol, @unchecked Sendable {
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_walletkit_core_fn_clone_credentialstore(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_credentialstore(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_walletkit_core_fn_free_credentialstore(pointer, $0) }
+        try! rustCall { uniffi_walletkit_core_fn_free_credentialstore(handle, $0) }
     }
 
     
@@ -1592,25 +1469,6 @@ public static func newWithComponents(paths: StoragePaths, keystore: DeviceKeysto
 
     
     /**
-     * Enforces replay safety for replay guard.
-     *
-     * # Errors
-     *
-     * Returns an error if the disclosure conflicts or storage fails.
-     */
-open func beginReplayGuard(requestId: Data, nullifier: Data, proofBytes: Data, now: UInt64, ttlSeconds: UInt64)throws  -> ReplayGuardResult  {
-    return try  FfiConverterTypeReplayGuardResult_lift(try rustCallWithError(FfiConverterTypeStorageError_lift) {
-    uniffi_walletkit_core_fn_method_credentialstore_begin_replay_guard(self.uniffiClonePointer(),
-        FfiConverterData.lower(requestId),
-        FfiConverterData.lower(nullifier),
-        FfiConverterData.lower(proofBytes),
-        FfiConverterUInt64.lower(now),
-        FfiConverterUInt64.lower(ttlSeconds),$0
-    )
-})
-}
-    
-    /**
      * Initializes storage and validates the account leaf index.
      *
      * # Errors
@@ -1618,7 +1476,8 @@ open func beginReplayGuard(requestId: Data, nullifier: Data, proofBytes: Data, n
      * Returns an error if initialization fails or the leaf index mismatches.
      */
 open func `init`(leafIndex: UInt64, now: UInt64)throws   {try rustCallWithError(FfiConverterTypeStorageError_lift) {
-    uniffi_walletkit_core_fn_method_credentialstore_init(self.uniffiClonePointer(),
+    uniffi_walletkit_core_fn_method_credentialstore_init(
+            self.uniffiCloneHandle(),
         FfiConverterUInt64.lower(leafIndex),
         FfiConverterUInt64.lower(now),$0
     )
@@ -1634,7 +1493,8 @@ open func `init`(leafIndex: UInt64, now: UInt64)throws   {try rustCallWithError(
      */
 open func listCredentials(issuerSchemaId: UInt64?, now: UInt64)throws  -> [CredentialRecord]  {
     return try  FfiConverterSequenceTypeCredentialRecord.lift(try rustCallWithError(FfiConverterTypeStorageError_lift) {
-    uniffi_walletkit_core_fn_method_credentialstore_list_credentials(self.uniffiClonePointer(),
+    uniffi_walletkit_core_fn_method_credentialstore_list_credentials(
+            self.uniffiCloneHandle(),
         FfiConverterOptionUInt64.lower(issuerSchemaId),
         FfiConverterUInt64.lower(now),$0
     )
@@ -1648,12 +1508,11 @@ open func listCredentials(issuerSchemaId: UInt64?, now: UInt64)throws  -> [Crede
      *
      * Returns an error if the cache lookup fails.
      */
-open func merkleCacheGet(registryKind: UInt8, root: Data, validBefore: UInt64)throws  -> Data?  {
+open func merkleCacheGet(validUntil: UInt64)throws  -> Data?  {
     return try  FfiConverterOptionData.lift(try rustCallWithError(FfiConverterTypeStorageError_lift) {
-    uniffi_walletkit_core_fn_method_credentialstore_merkle_cache_get(self.uniffiClonePointer(),
-        FfiConverterUInt8.lower(registryKind),
-        FfiConverterData.lower(root),
-        FfiConverterUInt64.lower(validBefore),$0
+    uniffi_walletkit_core_fn_method_credentialstore_merkle_cache_get(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(validUntil),$0
     )
 })
 }
@@ -1665,31 +1524,14 @@ open func merkleCacheGet(registryKind: UInt8, root: Data, validBefore: UInt64)th
      *
      * Returns an error if the cache insert fails.
      */
-open func merkleCachePut(registryKind: UInt8, root: Data, proofBytes: Data, now: UInt64, ttlSeconds: UInt64)throws   {try rustCallWithError(FfiConverterTypeStorageError_lift) {
-    uniffi_walletkit_core_fn_method_credentialstore_merkle_cache_put(self.uniffiClonePointer(),
-        FfiConverterUInt8.lower(registryKind),
-        FfiConverterData.lower(root),
+open func merkleCachePut(proofBytes: Data, now: UInt64, ttlSeconds: UInt64)throws   {try rustCallWithError(FfiConverterTypeStorageError_lift) {
+    uniffi_walletkit_core_fn_method_credentialstore_merkle_cache_put(
+            self.uniffiCloneHandle(),
         FfiConverterData.lower(proofBytes),
         FfiConverterUInt64.lower(now),
         FfiConverterUInt64.lower(ttlSeconds),$0
     )
 }
-}
-    
-    /**
-     * Checks for a prior replay guard entry by request id.
-     *
-     * # Errors
-     *
-     * Returns an error if the cache lookup fails.
-     */
-open func replayGuardGet(requestId: Data, now: UInt64)throws  -> Data?  {
-    return try  FfiConverterOptionData.lift(try rustCallWithError(FfiConverterTypeStorageError_lift) {
-    uniffi_walletkit_core_fn_method_credentialstore_replay_guard_get(self.uniffiClonePointer(),
-        FfiConverterData.lower(requestId),
-        FfiConverterUInt64.lower(now),$0
-    )
-})
 }
     
     /**
@@ -1701,7 +1543,8 @@ open func replayGuardGet(requestId: Data, now: UInt64)throws  -> Data?  {
      */
 open func storagePaths()throws  -> StoragePaths  {
     return try  FfiConverterTypeStoragePaths_lift(try rustCallWithError(FfiConverterTypeStorageError_lift) {
-    uniffi_walletkit_core_fn_method_credentialstore_storage_paths(self.uniffiClonePointer(),$0
+    uniffi_walletkit_core_fn_method_credentialstore_storage_paths(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -1715,7 +1558,8 @@ open func storagePaths()throws  -> StoragePaths  {
      */
 open func storeCredential(issuerSchemaId: UInt64, subjectBlindingFactor: Data, genesisIssuedAt: UInt64, expiresAt: UInt64, credentialBlob: Data, associatedData: Data?, now: UInt64)throws  -> UInt64  {
     return try  FfiConverterUInt64.lift(try rustCallWithError(FfiConverterTypeStorageError_lift) {
-    uniffi_walletkit_core_fn_method_credentialstore_store_credential(self.uniffiClonePointer(),
+    uniffi_walletkit_core_fn_method_credentialstore_store_credential(
+            self.uniffiCloneHandle(),
         FfiConverterUInt64.lower(issuerSchemaId),
         FfiConverterData.lower(subjectBlindingFactor),
         FfiConverterUInt64.lower(genesisIssuedAt),
@@ -1728,6 +1572,7 @@ open func storeCredential(issuerSchemaId: UInt64, subjectBlindingFactor: Data, g
 }
     
 
+    
 }
 
 
@@ -1735,33 +1580,24 @@ open func storeCredential(issuerSchemaId: UInt64, subjectBlindingFactor: Data, g
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeCredentialStore: FfiConverter {
-
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = CredentialStore
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> CredentialStore {
-        return CredentialStore(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> CredentialStore {
+        return CredentialStore(unsafeFromHandle: handle)
     }
 
-    public static func lower(_ value: CredentialStore) -> UnsafeMutableRawPointer {
-        return value.uniffiClonePointer()
+    public static func lower(_ value: CredentialStore) -> UInt64 {
+        return value.uniffiCloneHandle()
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CredentialStore {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: CredentialStore, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -1769,14 +1605,14 @@ public struct FfiConverterTypeCredentialStore: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeCredentialStore_lift(_ pointer: UnsafeMutableRawPointer) throws -> CredentialStore {
-    return try FfiConverterTypeCredentialStore.lift(pointer)
+public func FfiConverterTypeCredentialStore_lift(_ handle: UInt64) throws -> CredentialStore {
+    return try FfiConverterTypeCredentialStore.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeCredentialStore_lower(_ value: CredentialStore) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeCredentialStore_lower(_ value: CredentialStore) -> UInt64 {
     return FfiConverterTypeCredentialStore.lower(value)
 }
 
@@ -1819,13 +1655,13 @@ public protocol DeviceKeystore: AnyObject, Sendable {
  * Device keystore interface used to seal and open account keys.
  */
 open class DeviceKeystoreImpl: DeviceKeystore, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -1835,36 +1671,37 @@ open class DeviceKeystoreImpl: DeviceKeystore, @unchecked Sendable {
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_walletkit_core_fn_clone_devicekeystore(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_devicekeystore(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_walletkit_core_fn_free_devicekeystore(pointer, $0) }
+        try! rustCall { uniffi_walletkit_core_fn_free_devicekeystore(handle, $0) }
     }
 
     
@@ -1882,7 +1719,8 @@ open class DeviceKeystoreImpl: DeviceKeystore, @unchecked Sendable {
      */
 open func seal(associatedData: Data, plaintext: Data)throws  -> Data  {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeStorageError_lift) {
-    uniffi_walletkit_core_fn_method_devicekeystore_seal(self.uniffiClonePointer(),
+    uniffi_walletkit_core_fn_method_devicekeystore_seal(
+            self.uniffiCloneHandle(),
         FfiConverterData.lower(associatedData),
         FfiConverterData.lower(plaintext),$0
     )
@@ -1901,7 +1739,8 @@ open func seal(associatedData: Data, plaintext: Data)throws  -> Data  {
      */
 open func openSealed(associatedData: Data, ciphertext: Data)throws  -> Data  {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeStorageError_lift) {
-    uniffi_walletkit_core_fn_method_devicekeystore_open_sealed(self.uniffiClonePointer(),
+    uniffi_walletkit_core_fn_method_devicekeystore_open_sealed(
+            self.uniffiCloneHandle(),
         FfiConverterData.lower(associatedData),
         FfiConverterData.lower(ciphertext),$0
     )
@@ -1909,7 +1748,9 @@ open func openSealed(associatedData: Data, ciphertext: Data)throws  -> Data  {
 }
     
 
+    
 }
+
 
 
 // Put the implementation in a struct so we don't pollute the top-level namespace
@@ -1921,6 +1762,20 @@ fileprivate struct UniffiCallbackInterfaceDeviceKeystore {
     // This creates 1-element array, since this seems to be the only way to construct a const
     // pointer that we can pass to the Rust code.
     static let vtable: [UniffiVTableCallbackInterfaceDeviceKeystore] = [UniffiVTableCallbackInterfaceDeviceKeystore(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeDeviceKeystore.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface DeviceKeystore: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeDeviceKeystore.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface DeviceKeystore: handle missing in uniffiClone")
+            }
+        },
         seal: { (
             uniffiHandle: UInt64,
             associatedData: RustBuffer,
@@ -1974,12 +1829,6 @@ fileprivate struct UniffiCallbackInterfaceDeviceKeystore {
                 writeReturn: writeReturn,
                 lowerError: FfiConverterTypeStorageError_lower
             )
-        },
-        uniffiFree: { (uniffiHandle: UInt64) -> () in
-            let result = try? FfiConverterTypeDeviceKeystore.handleMap.remove(handle: uniffiHandle)
-            if result == nil {
-                print("Uniffi callback interface DeviceKeystore: handle missing in uniffiFree")
-            }
         }
     )]
 }
@@ -1988,42 +1837,43 @@ private func uniffiCallbackInitDeviceKeystore() {
     uniffi_walletkit_core_fn_init_callback_vtable_devicekeystore(UniffiCallbackInterfaceDeviceKeystore.vtable)
 }
 
-
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeDeviceKeystore: FfiConverter {
     fileprivate static let handleMap = UniffiHandleMap<DeviceKeystore>()
 
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = DeviceKeystore
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> DeviceKeystore {
-        return DeviceKeystoreImpl(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> DeviceKeystore {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return DeviceKeystoreImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
     }
 
-    public static func lower(_ value: DeviceKeystore) -> UnsafeMutableRawPointer {
-        guard let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: handleMap.insert(obj: value))) else {
-            fatalError("Cast to UnsafeMutableRawPointer failed")
-        }
-        return ptr
+    public static func lower(_ value: DeviceKeystore) -> UInt64 {
+         if let rustImpl = value as? DeviceKeystoreImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> DeviceKeystore {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: DeviceKeystore, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -2031,14 +1881,14 @@ public struct FfiConverterTypeDeviceKeystore: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeDeviceKeystore_lift(_ pointer: UnsafeMutableRawPointer) throws -> DeviceKeystore {
-    return try FfiConverterTypeDeviceKeystore.lift(pointer)
+public func FfiConverterTypeDeviceKeystore_lift(_ handle: UInt64) throws -> DeviceKeystore {
+    return try FfiConverterTypeDeviceKeystore.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeDeviceKeystore_lower(_ value: DeviceKeystore) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeDeviceKeystore_lower(_ value: DeviceKeystore) -> UInt64 {
     return FfiConverterTypeDeviceKeystore.lower(value)
 }
 
@@ -2071,13 +1921,13 @@ public protocol InitializingAuthenticatorProtocol: AnyObject, Sendable {
  * Use this for non-blocking registration flows where you want to poll the status yourself.
  */
 open class InitializingAuthenticator: InitializingAuthenticatorProtocol, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -2087,36 +1937,37 @@ open class InitializingAuthenticator: InitializingAuthenticatorProtocol, @unchec
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_walletkit_core_fn_clone_initializingauthenticator(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_initializingauthenticator(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_walletkit_core_fn_free_initializingauthenticator(pointer, $0) }
+        try! rustCall { uniffi_walletkit_core_fn_free_initializingauthenticator(handle, $0) }
     }
 
     
@@ -2136,9 +1987,9 @@ public static func register(seed: Data, config: String, recoveryAddress: String?
                 uniffi_walletkit_core_fn_constructor_initializingauthenticator_register(FfiConverterData.lower(seed),FfiConverterString.lower(config),FfiConverterOptionString.lower(recoveryAddress)
                 )
             },
-            pollFunc: ffi_walletkit_core_rust_future_poll_pointer,
-            completeFunc: ffi_walletkit_core_rust_future_complete_pointer,
-            freeFunc: ffi_walletkit_core_rust_future_free_pointer,
+            pollFunc: ffi_walletkit_core_rust_future_poll_u64,
+            completeFunc: ffi_walletkit_core_rust_future_complete_u64,
+            freeFunc: ffi_walletkit_core_rust_future_free_u64,
             liftFunc: FfiConverterTypeInitializingAuthenticator_lift,
             errorHandler: FfiConverterTypeWalletKitError_lift
         )
@@ -2160,9 +2011,9 @@ public static func registerWithDefaults(seed: Data, rpcUrl: String?, environment
                 uniffi_walletkit_core_fn_constructor_initializingauthenticator_register_with_defaults(FfiConverterData.lower(seed),FfiConverterOptionString.lower(rpcUrl),FfiConverterTypeEnvironment_lower(environment),FfiConverterOptionString.lower(recoveryAddress)
                 )
             },
-            pollFunc: ffi_walletkit_core_rust_future_poll_pointer,
-            completeFunc: ffi_walletkit_core_rust_future_complete_pointer,
-            freeFunc: ffi_walletkit_core_rust_future_free_pointer,
+            pollFunc: ffi_walletkit_core_rust_future_poll_u64,
+            completeFunc: ffi_walletkit_core_rust_future_complete_u64,
+            freeFunc: ffi_walletkit_core_rust_future_free_u64,
             liftFunc: FfiConverterTypeInitializingAuthenticator_lift,
             errorHandler: FfiConverterTypeWalletKitError_lift
         )
@@ -2181,7 +2032,7 @@ open func pollStatus()async throws  -> RegistrationStatus  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_walletkit_core_fn_method_initializingauthenticator_poll_status(
-                    self.uniffiClonePointer()
+                    self.uniffiCloneHandle()
                     
                 )
             },
@@ -2194,6 +2045,7 @@ open func pollStatus()async throws  -> RegistrationStatus  {
 }
     
 
+    
 }
 
 
@@ -2201,33 +2053,24 @@ open func pollStatus()async throws  -> RegistrationStatus  {
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeInitializingAuthenticator: FfiConverter {
-
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = InitializingAuthenticator
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> InitializingAuthenticator {
-        return InitializingAuthenticator(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> InitializingAuthenticator {
+        return InitializingAuthenticator(unsafeFromHandle: handle)
     }
 
-    public static func lower(_ value: InitializingAuthenticator) -> UnsafeMutableRawPointer {
-        return value.uniffiClonePointer()
+    public static func lower(_ value: InitializingAuthenticator) -> UInt64 {
+        return value.uniffiCloneHandle()
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> InitializingAuthenticator {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: InitializingAuthenticator, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -2235,14 +2078,14 @@ public struct FfiConverterTypeInitializingAuthenticator: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeInitializingAuthenticator_lift(_ pointer: UnsafeMutableRawPointer) throws -> InitializingAuthenticator {
-    return try FfiConverterTypeInitializingAuthenticator.lift(pointer)
+public func FfiConverterTypeInitializingAuthenticator_lift(_ handle: UInt64) throws -> InitializingAuthenticator {
+    return try FfiConverterTypeInitializingAuthenticator.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeInitializingAuthenticator_lower(_ value: InitializingAuthenticator) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeInitializingAuthenticator_lower(_ value: InitializingAuthenticator) -> UInt64 {
     return FfiConverterTypeInitializingAuthenticator.lower(value)
 }
 
@@ -2353,13 +2196,13 @@ public protocol Logger: AnyObject, Sendable {
  * ```
  */
 open class LoggerImpl: Logger, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -2369,36 +2212,37 @@ open class LoggerImpl: Logger, @unchecked Sendable {
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_walletkit_core_fn_clone_logger(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_logger(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_walletkit_core_fn_free_logger(pointer, $0) }
+        try! rustCall { uniffi_walletkit_core_fn_free_logger(handle, $0) }
     }
 
     
@@ -2413,7 +2257,8 @@ open class LoggerImpl: Logger, @unchecked Sendable {
      * * `message` - The log message to be recorded.
      */
 open func log(level: LogLevel, message: String)  {try! rustCall() {
-    uniffi_walletkit_core_fn_method_logger_log(self.uniffiClonePointer(),
+    uniffi_walletkit_core_fn_method_logger_log(
+            self.uniffiCloneHandle(),
         FfiConverterTypeLogLevel_lower(level),
         FfiConverterString.lower(message),$0
     )
@@ -2421,7 +2266,9 @@ open func log(level: LogLevel, message: String)  {try! rustCall() {
 }
     
 
+    
 }
+
 
 
 // Put the implementation in a struct so we don't pollute the top-level namespace
@@ -2433,6 +2280,20 @@ fileprivate struct UniffiCallbackInterfaceLogger {
     // This creates 1-element array, since this seems to be the only way to construct a const
     // pointer that we can pass to the Rust code.
     static let vtable: [UniffiVTableCallbackInterfaceLogger] = [UniffiVTableCallbackInterfaceLogger(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeLogger.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface Logger: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeLogger.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface Logger: handle missing in uniffiClone")
+            }
+        },
         log: { (
             uniffiHandle: UInt64,
             level: RustBuffer,
@@ -2458,12 +2319,6 @@ fileprivate struct UniffiCallbackInterfaceLogger {
                 makeCall: makeCall,
                 writeReturn: writeReturn
             )
-        },
-        uniffiFree: { (uniffiHandle: UInt64) -> () in
-            let result = try? FfiConverterTypeLogger.handleMap.remove(handle: uniffiHandle)
-            if result == nil {
-                print("Uniffi callback interface Logger: handle missing in uniffiFree")
-            }
         }
     )]
 }
@@ -2472,42 +2327,43 @@ private func uniffiCallbackInitLogger() {
     uniffi_walletkit_core_fn_init_callback_vtable_logger(UniffiCallbackInterfaceLogger.vtable)
 }
 
-
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeLogger: FfiConverter {
     fileprivate static let handleMap = UniffiHandleMap<Logger>()
 
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = Logger
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> Logger {
-        return LoggerImpl(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> Logger {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return LoggerImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
     }
 
-    public static func lower(_ value: Logger) -> UnsafeMutableRawPointer {
-        guard let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: handleMap.insert(obj: value))) else {
-            fatalError("Cast to UnsafeMutableRawPointer failed")
-        }
-        return ptr
+    public static func lower(_ value: Logger) -> UInt64 {
+         if let rustImpl = value as? LoggerImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Logger {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: Logger, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -2515,14 +2371,14 @@ public struct FfiConverterTypeLogger: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeLogger_lift(_ pointer: UnsafeMutableRawPointer) throws -> Logger {
-    return try FfiConverterTypeLogger.lift(pointer)
+public func FfiConverterTypeLogger_lift(_ handle: UInt64) throws -> Logger {
+    return try FfiConverterTypeLogger.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeLogger_lower(_ value: Logger) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeLogger_lower(_ value: Logger) -> UInt64 {
     return FfiConverterTypeLogger.lower(value)
 }
 
@@ -2535,13 +2391,13 @@ public protocol MerkleTreeProofProtocol: AnyObject, Sendable {
     
 }
 open class MerkleTreeProof: MerkleTreeProofProtocol, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -2551,36 +2407,37 @@ open class MerkleTreeProof: MerkleTreeProofProtocol, @unchecked Sendable {
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_walletkit_core_fn_clone_merkletreeproof(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_merkletreeproof(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_walletkit_core_fn_free_merkletreeproof(pointer, $0) }
+        try! rustCall { uniffi_walletkit_core_fn_free_merkletreeproof(handle, $0) }
     }
 
     
@@ -2598,9 +2455,9 @@ public static func fromIdentityCommitment(identityCommitment: U256Wrapper, seque
                 uniffi_walletkit_core_fn_constructor_merkletreeproof_from_identity_commitment(FfiConverterTypeU256Wrapper_lower(identityCommitment),FfiConverterString.lower(sequencerHost),FfiConverterBool.lower(requireMinedProof)
                 )
             },
-            pollFunc: ffi_walletkit_core_rust_future_poll_pointer,
-            completeFunc: ffi_walletkit_core_rust_future_complete_pointer,
-            freeFunc: ffi_walletkit_core_rust_future_free_pointer,
+            pollFunc: ffi_walletkit_core_rust_future_poll_u64,
+            completeFunc: ffi_walletkit_core_rust_future_complete_u64,
+            freeFunc: ffi_walletkit_core_rust_future_free_u64,
             liftFunc: FfiConverterTypeMerkleTreeProof_lift,
             errorHandler: FfiConverterTypeWalletKitError_lift
         )
@@ -2618,6 +2475,7 @@ public static func fromJsonProof(jsonProof: String, merkleRoot: String)throws  -
 
     
 
+    
 }
 
 
@@ -2625,33 +2483,24 @@ public static func fromJsonProof(jsonProof: String, merkleRoot: String)throws  -
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeMerkleTreeProof: FfiConverter {
-
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = MerkleTreeProof
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> MerkleTreeProof {
-        return MerkleTreeProof(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> MerkleTreeProof {
+        return MerkleTreeProof(unsafeFromHandle: handle)
     }
 
-    public static func lower(_ value: MerkleTreeProof) -> UnsafeMutableRawPointer {
-        return value.uniffiClonePointer()
+    public static func lower(_ value: MerkleTreeProof) -> UInt64 {
+        return value.uniffiCloneHandle()
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MerkleTreeProof {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: MerkleTreeProof, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -2659,14 +2508,14 @@ public struct FfiConverterTypeMerkleTreeProof: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeMerkleTreeProof_lift(_ pointer: UnsafeMutableRawPointer) throws -> MerkleTreeProof {
-    return try FfiConverterTypeMerkleTreeProof.lift(pointer)
+public func FfiConverterTypeMerkleTreeProof_lift(_ handle: UInt64) throws -> MerkleTreeProof {
+    return try FfiConverterTypeMerkleTreeProof.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeMerkleTreeProof_lower(_ value: MerkleTreeProof) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeMerkleTreeProof_lower(_ value: MerkleTreeProof) -> UInt64 {
     return FfiConverterTypeMerkleTreeProof.lower(value)
 }
 
@@ -2708,13 +2557,13 @@ public protocol ProofContextProtocol: AnyObject, Sendable {
  * Note on naming: `ProofContext` is used to make it clear in FFIs which may not respect the module structure.
  */
 open class ProofContext: ProofContextProtocol, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -2724,27 +2573,27 @@ open class ProofContext: ProofContextProtocol, @unchecked Sendable {
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_walletkit_core_fn_clone_proofcontext(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_proofcontext(self.handle, $0) }
     }
     /**
      * Initializes a `ProofContext`.
@@ -2764,7 +2613,7 @@ open class ProofContext: ProofContextProtocol, @unchecked Sendable {
 
      */
 public convenience init(appId: String, action: String?, signal: String?, credentialType: CredentialType) {
-    let pointer =
+    let handle =
         try! rustCall() {
     uniffi_walletkit_core_fn_constructor_proofcontext_new(
         FfiConverterString.lower(appId),
@@ -2773,15 +2622,16 @@ public convenience init(appId: String, action: String?, signal: String?, credent
         FfiConverterTypeCredentialType_lower(credentialType),$0
     )
 }
-    self.init(unsafeFromRawPointer: pointer)
+    self.init(unsafeFromHandle: handle)
 }
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_walletkit_core_fn_free_proofcontext(pointer, $0) }
+        try! rustCall { uniffi_walletkit_core_fn_free_proofcontext(handle, $0) }
     }
 
     
@@ -2909,7 +2759,8 @@ public static func newFromSignalHash(appId: String, action: Data?, credentialTyp
      */
 open func getCredentialType() -> CredentialType  {
     return try!  FfiConverterTypeCredentialType_lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_proofcontext_get_credential_type(self.uniffiClonePointer(),$0
+    uniffi_walletkit_core_fn_method_proofcontext_get_credential_type(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -2919,7 +2770,8 @@ open func getCredentialType() -> CredentialType  {
      */
 open func getExternalNullifier() -> U256Wrapper  {
     return try!  FfiConverterTypeU256Wrapper_lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_proofcontext_get_external_nullifier(self.uniffiClonePointer(),$0
+    uniffi_walletkit_core_fn_method_proofcontext_get_external_nullifier(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -2929,12 +2781,14 @@ open func getExternalNullifier() -> U256Wrapper  {
      */
 open func getSignalHash() -> U256Wrapper  {
     return try!  FfiConverterTypeU256Wrapper_lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_proofcontext_get_signal_hash(self.uniffiClonePointer(),$0
+    uniffi_walletkit_core_fn_method_proofcontext_get_signal_hash(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 
+    
 }
 
 
@@ -2942,33 +2796,24 @@ open func getSignalHash() -> U256Wrapper  {
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeProofContext: FfiConverter {
-
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = ProofContext
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> ProofContext {
-        return ProofContext(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> ProofContext {
+        return ProofContext(unsafeFromHandle: handle)
     }
 
-    public static func lower(_ value: ProofContext) -> UnsafeMutableRawPointer {
-        return value.uniffiClonePointer()
+    public static func lower(_ value: ProofContext) -> UInt64 {
+        return value.uniffiCloneHandle()
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProofContext {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: ProofContext, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -2976,14 +2821,14 @@ public struct FfiConverterTypeProofContext: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeProofContext_lift(_ pointer: UnsafeMutableRawPointer) throws -> ProofContext {
-    return try FfiConverterTypeProofContext.lift(pointer)
+public func FfiConverterTypeProofContext_lift(_ handle: UInt64) throws -> ProofContext {
+    return try FfiConverterTypeProofContext.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeProofContext_lower(_ value: ProofContext) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeProofContext_lower(_ value: ProofContext) -> UInt64 {
     return FfiConverterTypeProofContext.lower(value)
 }
 
@@ -3040,13 +2885,13 @@ public protocol ProofOutputProtocol: AnyObject, Sendable {
  * More information on: [On-Chain Verification](https://docs.world.org/world-id/id/on-chain)
  */
 open class ProofOutput: ProofOutputProtocol, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -3056,36 +2901,37 @@ open class ProofOutput: ProofOutputProtocol, @unchecked Sendable {
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_walletkit_core_fn_clone_proofoutput(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_proofoutput(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_walletkit_core_fn_free_proofoutput(pointer, $0) }
+        try! rustCall { uniffi_walletkit_core_fn_free_proofoutput(handle, $0) }
     }
 
     
@@ -3096,7 +2942,8 @@ open class ProofOutput: ProofOutputProtocol, @unchecked Sendable {
      */
 open func getCredentialType() -> CredentialType  {
     return try!  FfiConverterTypeCredentialType_lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_proofoutput_get_credential_type(self.uniffiClonePointer(),$0
+    uniffi_walletkit_core_fn_method_proofoutput_get_credential_type(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -3106,7 +2953,8 @@ open func getCredentialType() -> CredentialType  {
      */
 open func getMerkleRoot() -> U256Wrapper  {
     return try!  FfiConverterTypeU256Wrapper_lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_proofoutput_get_merkle_root(self.uniffiClonePointer(),$0
+    uniffi_walletkit_core_fn_method_proofoutput_get_merkle_root(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -3116,7 +2964,8 @@ open func getMerkleRoot() -> U256Wrapper  {
      */
 open func getNullifierHash() -> U256Wrapper  {
     return try!  FfiConverterTypeU256Wrapper_lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_proofoutput_get_nullifier_hash(self.uniffiClonePointer(),$0
+    uniffi_walletkit_core_fn_method_proofoutput_get_nullifier_hash(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -3126,7 +2975,8 @@ open func getNullifierHash() -> U256Wrapper  {
      */
 open func getProofAsString() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_proofoutput_get_proof_as_string(self.uniffiClonePointer(),$0
+    uniffi_walletkit_core_fn_method_proofoutput_get_proof_as_string(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -3139,12 +2989,14 @@ open func getProofAsString() -> String  {
      */
 open func toJson()throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
-    uniffi_walletkit_core_fn_method_proofoutput_to_json(self.uniffiClonePointer(),$0
+    uniffi_walletkit_core_fn_method_proofoutput_to_json(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 
+    
 }
 
 
@@ -3152,33 +3004,24 @@ open func toJson()throws  -> String  {
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeProofOutput: FfiConverter {
-
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = ProofOutput
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> ProofOutput {
-        return ProofOutput(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> ProofOutput {
+        return ProofOutput(unsafeFromHandle: handle)
     }
 
-    public static func lower(_ value: ProofOutput) -> UnsafeMutableRawPointer {
-        return value.uniffiClonePointer()
+    public static func lower(_ value: ProofOutput) -> UInt64 {
+        return value.uniffiCloneHandle()
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProofOutput {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: ProofOutput, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -3186,15 +3029,273 @@ public struct FfiConverterTypeProofOutput: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeProofOutput_lift(_ pointer: UnsafeMutableRawPointer) throws -> ProofOutput {
-    return try FfiConverterTypeProofOutput.lift(pointer)
+public func FfiConverterTypeProofOutput_lift(_ handle: UInt64) throws -> ProofOutput {
+    return try FfiConverterTypeProofOutput.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeProofOutput_lower(_ value: ProofOutput) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeProofOutput_lower(_ value: ProofOutput) -> UInt64 {
     return FfiConverterTypeProofOutput.lower(value)
+}
+
+
+
+
+
+
+/**
+ * A request from the RP to the Authenticator. See [`CoreProofRequest`] for more details.
+ * This is a wrapper type to expose to foreign language bindings.
+ */
+public protocol ProofRequestProtocol: AnyObject, Sendable {
+    
+    func toJson() throws  -> String
+    
+}
+/**
+ * A request from the RP to the Authenticator. See [`CoreProofRequest`] for more details.
+ * This is a wrapper type to expose to foreign language bindings.
+ */
+open class ProofRequest: ProofRequestProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_proofrequest(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_proofrequest(handle, $0) }
+    }
+
+    
+public static func fromJson(json: String)throws  -> ProofRequest  {
+    return try  FfiConverterTypeProofRequest_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+    uniffi_walletkit_core_fn_constructor_proofrequest_from_json(
+        FfiConverterString.lower(json),$0
+    )
+})
+}
+    
+
+    
+open func toJson()throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+    uniffi_walletkit_core_fn_method_proofrequest_to_json(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeProofRequest: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = ProofRequest
+
+    public static func lift(_ handle: UInt64) throws -> ProofRequest {
+        return ProofRequest(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: ProofRequest) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProofRequest {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: ProofRequest, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProofRequest_lift(_ handle: UInt64) throws -> ProofRequest {
+    return try FfiConverterTypeProofRequest.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProofRequest_lower(_ value: ProofRequest) -> UInt64 {
+    return FfiConverterTypeProofRequest.lower(value)
+}
+
+
+
+
+
+
+/**
+ * A response from the Authenticator to the RP. See [`CoreProofResponse`] for more details.
+ *
+ * This is a wrapper type to expose to foreign language bindings.
+ */
+public protocol ProofResponseProtocol: AnyObject, Sendable {
+    
+    func toJson() throws  -> String
+    
+}
+/**
+ * A response from the Authenticator to the RP. See [`CoreProofResponse`] for more details.
+ *
+ * This is a wrapper type to expose to foreign language bindings.
+ */
+open class ProofResponse: ProofResponseProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_proofresponse(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_proofresponse(handle, $0) }
+    }
+
+    
+
+    
+open func toJson()throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+    uniffi_walletkit_core_fn_method_proofresponse_to_json(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeProofResponse: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = ProofResponse
+
+    public static func lift(_ handle: UInt64) throws -> ProofResponse {
+        return ProofResponse(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: ProofResponse) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProofResponse {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: ProofResponse, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProofResponse_lift(_ handle: UInt64) throws -> ProofResponse {
+    return try FfiConverterTypeProofResponse.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProofResponse_lower(_ value: ProofResponse) -> UInt64 {
+    return FfiConverterTypeProofResponse.lower(value)
 }
 
 
@@ -3237,13 +3338,13 @@ public protocol StoragePathsProtocol: AnyObject, Sendable {
  * Paths for credential storage artifacts under `<root>/worldid`.
  */
 open class StoragePaths: StoragePathsProtocol, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -3253,36 +3354,37 @@ open class StoragePaths: StoragePathsProtocol, @unchecked Sendable {
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_walletkit_core_fn_clone_storagepaths(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_storagepaths(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_walletkit_core_fn_free_storagepaths(pointer, $0) }
+        try! rustCall { uniffi_walletkit_core_fn_free_storagepaths(handle, $0) }
     }
 
     
@@ -3304,7 +3406,8 @@ public static func fromRoot(root: String) -> StoragePaths  {
      */
 open func cacheDbPathString() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_storagepaths_cache_db_path_string(self.uniffiClonePointer(),$0
+    uniffi_walletkit_core_fn_method_storagepaths_cache_db_path_string(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -3314,7 +3417,8 @@ open func cacheDbPathString() -> String  {
      */
 open func lockPathString() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_storagepaths_lock_path_string(self.uniffiClonePointer(),$0
+    uniffi_walletkit_core_fn_method_storagepaths_lock_path_string(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -3324,7 +3428,8 @@ open func lockPathString() -> String  {
      */
 open func rootPathString() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_storagepaths_root_path_string(self.uniffiClonePointer(),$0
+    uniffi_walletkit_core_fn_method_storagepaths_root_path_string(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -3334,7 +3439,8 @@ open func rootPathString() -> String  {
      */
 open func vaultDbPathString() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_storagepaths_vault_db_path_string(self.uniffiClonePointer(),$0
+    uniffi_walletkit_core_fn_method_storagepaths_vault_db_path_string(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -3344,12 +3450,14 @@ open func vaultDbPathString() -> String  {
      */
 open func worldidDirPathString() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_storagepaths_worldid_dir_path_string(self.uniffiClonePointer(),$0
+    uniffi_walletkit_core_fn_method_storagepaths_worldid_dir_path_string(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 
+    
 }
 
 
@@ -3357,33 +3465,24 @@ open func worldidDirPathString() -> String  {
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeStoragePaths: FfiConverter {
-
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = StoragePaths
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> StoragePaths {
-        return StoragePaths(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> StoragePaths {
+        return StoragePaths(unsafeFromHandle: handle)
     }
 
-    public static func lower(_ value: StoragePaths) -> UnsafeMutableRawPointer {
-        return value.uniffiClonePointer()
+    public static func lower(_ value: StoragePaths) -> UInt64 {
+        return value.uniffiCloneHandle()
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> StoragePaths {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: StoragePaths, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -3391,14 +3490,14 @@ public struct FfiConverterTypeStoragePaths: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeStoragePaths_lift(_ pointer: UnsafeMutableRawPointer) throws -> StoragePaths {
-    return try FfiConverterTypeStoragePaths.lift(pointer)
+public func FfiConverterTypeStoragePaths_lift(_ handle: UInt64) throws -> StoragePaths {
+    return try FfiConverterTypeStoragePaths.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeStoragePaths_lower(_ value: StoragePaths) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeStoragePaths_lower(_ value: StoragePaths) -> UInt64 {
     return FfiConverterTypeStoragePaths.lower(value)
 }
 
@@ -3432,13 +3531,13 @@ public protocol StorageProvider: AnyObject, Sendable {
  * Provider responsible for platform-specific storage components and paths.
  */
 open class StorageProviderImpl: StorageProvider, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -3448,36 +3547,37 @@ open class StorageProviderImpl: StorageProvider, @unchecked Sendable {
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_walletkit_core_fn_clone_storageprovider(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_storageprovider(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_walletkit_core_fn_free_storageprovider(pointer, $0) }
+        try! rustCall { uniffi_walletkit_core_fn_free_storageprovider(handle, $0) }
     }
 
     
@@ -3488,7 +3588,8 @@ open class StorageProviderImpl: StorageProvider, @unchecked Sendable {
      */
 open func keystore() -> DeviceKeystore  {
     return try!  FfiConverterTypeDeviceKeystore_lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_storageprovider_keystore(self.uniffiClonePointer(),$0
+    uniffi_walletkit_core_fn_method_storageprovider_keystore(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -3498,7 +3599,8 @@ open func keystore() -> DeviceKeystore  {
      */
 open func blobStore() -> AtomicBlobStore  {
     return try!  FfiConverterTypeAtomicBlobStore_lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_storageprovider_blob_store(self.uniffiClonePointer(),$0
+    uniffi_walletkit_core_fn_method_storageprovider_blob_store(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -3508,13 +3610,16 @@ open func blobStore() -> AtomicBlobStore  {
      */
 open func paths() -> StoragePaths  {
     return try!  FfiConverterTypeStoragePaths_lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_storageprovider_paths(self.uniffiClonePointer(),$0
+    uniffi_walletkit_core_fn_method_storageprovider_paths(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 
+    
 }
+
 
 
 // Put the implementation in a struct so we don't pollute the top-level namespace
@@ -3526,9 +3631,23 @@ fileprivate struct UniffiCallbackInterfaceStorageProvider {
     // This creates 1-element array, since this seems to be the only way to construct a const
     // pointer that we can pass to the Rust code.
     static let vtable: [UniffiVTableCallbackInterfaceStorageProvider] = [UniffiVTableCallbackInterfaceStorageProvider(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeStorageProvider.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface StorageProvider: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeStorageProvider.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface StorageProvider: handle missing in uniffiClone")
+            }
+        },
         keystore: { (
             uniffiHandle: UInt64,
-            uniffiOutReturn: UnsafeMutablePointer<UnsafeMutableRawPointer>,
+            uniffiOutReturn: UnsafeMutablePointer<UInt64>,
             uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
         ) in
             let makeCall = {
@@ -3550,7 +3669,7 @@ fileprivate struct UniffiCallbackInterfaceStorageProvider {
         },
         blobStore: { (
             uniffiHandle: UInt64,
-            uniffiOutReturn: UnsafeMutablePointer<UnsafeMutableRawPointer>,
+            uniffiOutReturn: UnsafeMutablePointer<UInt64>,
             uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
         ) in
             let makeCall = {
@@ -3572,7 +3691,7 @@ fileprivate struct UniffiCallbackInterfaceStorageProvider {
         },
         paths: { (
             uniffiHandle: UInt64,
-            uniffiOutReturn: UnsafeMutablePointer<UnsafeMutableRawPointer>,
+            uniffiOutReturn: UnsafeMutablePointer<UInt64>,
             uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
         ) in
             let makeCall = {
@@ -3591,12 +3710,6 @@ fileprivate struct UniffiCallbackInterfaceStorageProvider {
                 makeCall: makeCall,
                 writeReturn: writeReturn
             )
-        },
-        uniffiFree: { (uniffiHandle: UInt64) -> () in
-            let result = try? FfiConverterTypeStorageProvider.handleMap.remove(handle: uniffiHandle)
-            if result == nil {
-                print("Uniffi callback interface StorageProvider: handle missing in uniffiFree")
-            }
         }
     )]
 }
@@ -3605,42 +3718,43 @@ private func uniffiCallbackInitStorageProvider() {
     uniffi_walletkit_core_fn_init_callback_vtable_storageprovider(UniffiCallbackInterfaceStorageProvider.vtable)
 }
 
-
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeStorageProvider: FfiConverter {
     fileprivate static let handleMap = UniffiHandleMap<StorageProvider>()
 
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = StorageProvider
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> StorageProvider {
-        return StorageProviderImpl(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> StorageProvider {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return StorageProviderImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
     }
 
-    public static func lower(_ value: StorageProvider) -> UnsafeMutableRawPointer {
-        guard let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: handleMap.insert(obj: value))) else {
-            fatalError("Cast to UnsafeMutableRawPointer failed")
-        }
-        return ptr
+    public static func lower(_ value: StorageProvider) -> UInt64 {
+         if let rustImpl = value as? StorageProviderImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> StorageProvider {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: StorageProvider, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -3648,14 +3762,14 @@ public struct FfiConverterTypeStorageProvider: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeStorageProvider_lift(_ pointer: UnsafeMutableRawPointer) throws -> StorageProvider {
-    return try FfiConverterTypeStorageProvider.lift(pointer)
+public func FfiConverterTypeStorageProvider_lift(_ handle: UInt64) throws -> StorageProvider {
+    return try FfiConverterTypeStorageProvider.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeStorageProvider_lower(_ value: StorageProvider) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeStorageProvider_lower(_ value: StorageProvider) -> UInt64 {
     return FfiConverterTypeStorageProvider.lower(value)
 }
 
@@ -3705,13 +3819,13 @@ public protocol U256WrapperProtocol: AnyObject, Sendable {
  * be represented as padded hex strings from Big Endian bytes.
  */
 open class U256Wrapper: U256WrapperProtocol, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -3721,36 +3835,37 @@ open class U256Wrapper: U256WrapperProtocol, @unchecked Sendable {
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_walletkit_core_fn_clone_u256wrapper(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_u256wrapper(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_walletkit_core_fn_free_u256wrapper(pointer, $0) }
+        try! rustCall { uniffi_walletkit_core_fn_free_u256wrapper(handle, $0) }
     }
 
     
@@ -3820,7 +3935,8 @@ public static func tryFromHexString(hexString: String)throws  -> U256Wrapper  {
      */
 open func intoLimbs() -> [UInt64]  {
     return try!  FfiConverterSequenceUInt64.lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_u256wrapper_into_limbs(self.uniffiClonePointer(),$0
+    uniffi_walletkit_core_fn_method_u256wrapper_into_limbs(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -3830,7 +3946,8 @@ open func intoLimbs() -> [UInt64]  {
      */
 open func toDecimalString() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_u256wrapper_to_decimal_string(self.uniffiClonePointer(),$0
+    uniffi_walletkit_core_fn_method_u256wrapper_to_decimal_string(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -3840,12 +3957,14 @@ open func toDecimalString() -> String  {
      */
 open func toHexString() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_u256wrapper_to_hex_string(self.uniffiClonePointer(),$0
+    uniffi_walletkit_core_fn_method_u256wrapper_to_hex_string(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
     
 
+    
 }
 
 
@@ -3853,33 +3972,24 @@ open func toHexString() -> String  {
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeU256Wrapper: FfiConverter {
-
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = U256Wrapper
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> U256Wrapper {
-        return U256Wrapper(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> U256Wrapper {
+        return U256Wrapper(unsafeFromHandle: handle)
     }
 
-    public static func lower(_ value: U256Wrapper) -> UnsafeMutableRawPointer {
-        return value.uniffiClonePointer()
+    public static func lower(_ value: U256Wrapper) -> UInt64 {
+        return value.uniffiCloneHandle()
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> U256Wrapper {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: U256Wrapper, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -3887,14 +3997,14 @@ public struct FfiConverterTypeU256Wrapper: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeU256Wrapper_lift(_ pointer: UnsafeMutableRawPointer) throws -> U256Wrapper {
-    return try FfiConverterTypeU256Wrapper.lift(pointer)
+public func FfiConverterTypeU256Wrapper_lift(_ handle: UInt64) throws -> U256Wrapper {
+    return try FfiConverterTypeU256Wrapper.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeU256Wrapper_lower(_ value: U256Wrapper) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeU256Wrapper_lower(_ value: U256Wrapper) -> UInt64 {
     return FfiConverterTypeU256Wrapper.lower(value)
 }
 
@@ -3975,13 +4085,13 @@ public protocol WorldIdProtocol: AnyObject, Sendable {
  * Most essential primitive for World ID.
  */
 open class WorldId: WorldIdProtocol, @unchecked Sendable {
-    fileprivate let pointer: UnsafeMutableRawPointer!
+    fileprivate let handle: UInt64
 
-    /// Used to instantiate a [FFIObject] without an actual pointer, for fakes in tests, mostly.
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public struct NoPointer {
+    public struct NoHandle {
         public init() {}
     }
 
@@ -3991,48 +4101,49 @@ open class WorldId: WorldIdProtocol, @unchecked Sendable {
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    required public init(unsafeFromRawPointer pointer: UnsafeMutableRawPointer) {
-        self.pointer = pointer
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
     }
 
     // This constructor can be used to instantiate a fake object.
-    // - Parameter noPointer: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
     //
     // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing [Pointer] the FFI lower functions will crash.
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public init(noPointer: NoPointer) {
-        self.pointer = nil
+    public init(noHandle: NoHandle) {
+        self.handle = 0
     }
 
 #if swift(>=5.8)
     @_documentation(visibility: private)
 #endif
-    public func uniffiClonePointer() -> UnsafeMutableRawPointer {
-        return try! rustCall { uniffi_walletkit_core_fn_clone_worldid(self.pointer, $0) }
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_worldid(self.handle, $0) }
     }
     /**
      * Initializes a new `Identity` from a World ID secret. The identity is initialized for a specific environment.
      */
 public convenience init(secret: Data, environment: Environment) {
-    let pointer =
+    let handle =
         try! rustCall() {
     uniffi_walletkit_core_fn_constructor_worldid_new(
         FfiConverterData.lower(secret),
         FfiConverterTypeEnvironment_lower(environment),$0
     )
 }
-    self.init(unsafeFromRawPointer: pointer)
+    self.init(unsafeFromHandle: handle)
 }
 
     deinit {
-        guard let pointer = pointer else {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
             return
         }
 
-        try! rustCall { uniffi_walletkit_core_fn_free_worldid(pointer, $0) }
+        try! rustCall { uniffi_walletkit_core_fn_free_worldid(handle, $0) }
     }
 
     
@@ -4047,7 +4158,8 @@ public convenience init(secret: Data, environment: Environment) {
      */
 open func generateNullifierHash(context: ProofContext) -> U256Wrapper  {
     return try!  FfiConverterTypeU256Wrapper_lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_worldid_generate_nullifier_hash(self.uniffiClonePointer(),
+    uniffi_walletkit_core_fn_method_worldid_generate_nullifier_hash(
+            self.uniffiCloneHandle(),
         FfiConverterTypeProofContext_lower(context),$0
     )
 })
@@ -4082,13 +4194,13 @@ open func generateProof(context: ProofContext)async throws  -> ProofOutput  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_walletkit_core_fn_method_worldid_generate_proof(
-                    self.uniffiClonePointer(),
+                    self.uniffiCloneHandle(),
                     FfiConverterTypeProofContext_lower(context)
                 )
             },
-            pollFunc: ffi_walletkit_core_rust_future_poll_pointer,
-            completeFunc: ffi_walletkit_core_rust_future_complete_pointer,
-            freeFunc: ffi_walletkit_core_rust_future_free_pointer,
+            pollFunc: ffi_walletkit_core_rust_future_poll_u64,
+            completeFunc: ffi_walletkit_core_rust_future_complete_u64,
+            freeFunc: ffi_walletkit_core_rust_future_free_u64,
             liftFunc: FfiConverterTypeProofOutput_lift,
             errorHandler: FfiConverterTypeWalletKitError_lift
         )
@@ -4104,7 +4216,8 @@ open func generateProof(context: ProofContext)async throws  -> ProofOutput  {
      */
 open func getIdentityCommitment(credentialType: CredentialType) -> U256Wrapper  {
     return try!  FfiConverterTypeU256Wrapper_lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_worldid_get_identity_commitment(self.uniffiClonePointer(),
+    uniffi_walletkit_core_fn_method_worldid_get_identity_commitment(
+            self.uniffiCloneHandle(),
         FfiConverterTypeCredentialType_lower(credentialType),$0
     )
 })
@@ -4123,13 +4236,15 @@ open func getIdentityCommitment(credentialType: CredentialType) -> U256Wrapper  
      */
 open func isEqualTo(other: WorldId) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_worldid_is_equal_to(self.uniffiClonePointer(),
+    uniffi_walletkit_core_fn_method_worldid_is_equal_to(
+            self.uniffiCloneHandle(),
         FfiConverterTypeWorldId_lower(other),$0
     )
 })
 }
     
 
+    
 }
 
 
@@ -4137,33 +4252,24 @@ open func isEqualTo(other: WorldId) -> Bool  {
 @_documentation(visibility: private)
 #endif
 public struct FfiConverterTypeWorldId: FfiConverter {
-
-    typealias FfiType = UnsafeMutableRawPointer
+    typealias FfiType = UInt64
     typealias SwiftType = WorldId
 
-    public static func lift(_ pointer: UnsafeMutableRawPointer) throws -> WorldId {
-        return WorldId(unsafeFromRawPointer: pointer)
+    public static func lift(_ handle: UInt64) throws -> WorldId {
+        return WorldId(unsafeFromHandle: handle)
     }
 
-    public static func lower(_ value: WorldId) -> UnsafeMutableRawPointer {
-        return value.uniffiClonePointer()
+    public static func lower(_ value: WorldId) -> UInt64 {
+        return value.uniffiCloneHandle()
     }
 
     public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WorldId {
-        let v: UInt64 = try readInt(&buf)
-        // The Rust code won't compile if a pointer won't fit in a UInt64.
-        // We have to go via `UInt` because that's the thing that's the size of a pointer.
-        let ptr = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: v))
-        if (ptr == nil) {
-            throw UniffiInternalError.unexpectedNullPointer
-        }
-        return try lift(ptr!)
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
     }
 
     public static func write(_ value: WorldId, into buf: inout [UInt8]) {
-        // This fiddling is because `Int` is the thing that's the same size as a pointer.
-        // The Rust code won't compile if a pointer won't fit in a `UInt64`.
-        writeInt(&buf, UInt64(bitPattern: Int64(Int(bitPattern: lower(value)))))
+        writeInt(&buf, lower(value))
     }
 }
 
@@ -4171,14 +4277,14 @@ public struct FfiConverterTypeWorldId: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeWorldId_lift(_ pointer: UnsafeMutableRawPointer) throws -> WorldId {
-    return try FfiConverterTypeWorldId.lift(pointer)
+public func FfiConverterTypeWorldId_lift(_ handle: UInt64) throws -> WorldId {
+    return try FfiConverterTypeWorldId.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeWorldId_lower(_ value: WorldId) -> UnsafeMutableRawPointer {
+public func FfiConverterTypeWorldId_lower(_ value: WorldId) -> UInt64 {
     return FfiConverterTypeWorldId.lower(value)
 }
 
@@ -4191,7 +4297,7 @@ public func FfiConverterTypeWorldId_lower(_ value: WorldId) -> UnsafeMutableRawP
  * This is intentionally small and excludes blobs; full credential payloads can
  * be fetched separately to avoid heavy list queries.
  */
-public struct CredentialRecord {
+public struct CredentialRecord: Equatable, Hashable {
     /**
      * Credential identifier.
      */
@@ -4221,35 +4327,15 @@ public struct CredentialRecord {
         self.issuerSchemaId = issuerSchemaId
         self.expiresAt = expiresAt
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension CredentialRecord: Sendable {}
 #endif
-
-
-extension CredentialRecord: Equatable, Hashable {
-    public static func ==(lhs: CredentialRecord, rhs: CredentialRecord) -> Bool {
-        if lhs.credentialId != rhs.credentialId {
-            return false
-        }
-        if lhs.issuerSchemaId != rhs.issuerSchemaId {
-            return false
-        }
-        if lhs.expiresAt != rhs.expiresAt {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(credentialId)
-        hasher.combine(issuerSchemaId)
-        hasher.combine(expiresAt)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -4287,120 +4373,10 @@ public func FfiConverterTypeCredentialRecord_lower(_ value: CredentialRecord) ->
 }
 
 
-public struct InclusionProofPayload {
-    /**
-     * Merkle root as hex string.
-     */
-    public var root: String
-    /**
-     * Leaf index for the account.
-     */
-    public var leafIndex: UInt64
-    /**
-     * Sibling path as hex strings.
-     */
-    public var siblings: [String]
-    /**
-     * Compressed authenticator public keys as hex strings.
-     */
-    public var authenticatorPubkeys: [String]
-
-    // Default memberwise initializers are never public by default, so we
-    // declare one manually.
-    public init(
-        /**
-         * Merkle root as hex string.
-         */root: String, 
-        /**
-         * Leaf index for the account.
-         */leafIndex: UInt64, 
-        /**
-         * Sibling path as hex strings.
-         */siblings: [String], 
-        /**
-         * Compressed authenticator public keys as hex strings.
-         */authenticatorPubkeys: [String]) {
-        self.root = root
-        self.leafIndex = leafIndex
-        self.siblings = siblings
-        self.authenticatorPubkeys = authenticatorPubkeys
-    }
-}
-
-#if compiler(>=6)
-extension InclusionProofPayload: Sendable {}
-#endif
-
-
-extension InclusionProofPayload: Equatable, Hashable {
-    public static func ==(lhs: InclusionProofPayload, rhs: InclusionProofPayload) -> Bool {
-        if lhs.root != rhs.root {
-            return false
-        }
-        if lhs.leafIndex != rhs.leafIndex {
-            return false
-        }
-        if lhs.siblings != rhs.siblings {
-            return false
-        }
-        if lhs.authenticatorPubkeys != rhs.authenticatorPubkeys {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(root)
-        hasher.combine(leafIndex)
-        hasher.combine(siblings)
-        hasher.combine(authenticatorPubkeys)
-    }
-}
-
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeInclusionProofPayload: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> InclusionProofPayload {
-        return
-            try InclusionProofPayload(
-                root: FfiConverterString.read(from: &buf), 
-                leafIndex: FfiConverterUInt64.read(from: &buf), 
-                siblings: FfiConverterSequenceString.read(from: &buf), 
-                authenticatorPubkeys: FfiConverterSequenceString.read(from: &buf)
-        )
-    }
-
-    public static func write(_ value: InclusionProofPayload, into buf: inout [UInt8]) {
-        FfiConverterString.write(value.root, into: &buf)
-        FfiConverterUInt64.write(value.leafIndex, into: &buf)
-        FfiConverterSequenceString.write(value.siblings, into: &buf)
-        FfiConverterSequenceString.write(value.authenticatorPubkeys, into: &buf)
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeInclusionProofPayload_lift(_ buf: RustBuffer) throws -> InclusionProofPayload {
-    return try FfiConverterTypeInclusionProofPayload.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeInclusionProofPayload_lower(_ value: InclusionProofPayload) -> RustBuffer {
-    return FfiConverterTypeInclusionProofPayload.lower(value)
-}
-
-
 /**
  * Replay guard result.
  */
-public struct ReplayGuardResult {
+public struct ReplayGuardResult: Equatable, Hashable {
     /**
      * Result kind.
      */
@@ -4422,31 +4398,15 @@ public struct ReplayGuardResult {
         self.kind = kind
         self.bytes = bytes
     }
+
+    
+
+    
 }
 
 #if compiler(>=6)
 extension ReplayGuardResult: Sendable {}
 #endif
-
-
-extension ReplayGuardResult: Equatable, Hashable {
-    public static func ==(lhs: ReplayGuardResult, rhs: ReplayGuardResult) -> Bool {
-        if lhs.kind != rhs.kind {
-            return false
-        }
-        if lhs.bytes != rhs.bytes {
-            return false
-        }
-        return true
-    }
-
-    public func hash(into hasher: inout Hasher) {
-        hasher.combine(kind)
-        hasher.combine(bytes)
-    }
-}
-
-
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -4490,7 +4450,7 @@ public func FfiConverterTypeReplayGuardResult_lower(_ value: ReplayGuardResult) 
  * distinguishes credential payloads from associated data.
  */
 
-public enum BlobKind : UInt8 {
+public enum BlobKind: UInt8, Equatable, Hashable {
     
     /**
      * Credential blob payload.
@@ -4500,8 +4460,12 @@ public enum BlobKind : UInt8 {
      * Associated data payload.
      */
     case associatedData = 2
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension BlobKind: Sendable {}
@@ -4556,13 +4520,6 @@ public func FfiConverterTypeBlobKind_lower(_ value: BlobKind) -> RustBuffer {
 }
 
 
-extension BlobKind: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
@@ -4574,7 +4531,7 @@ extension BlobKind: Equatable, Hashable {}
  * More details in `https://docs.world.org/world-id/concepts#proof-of-personhood`
  */
 
-public enum CredentialType {
+public enum CredentialType: Equatable, Hashable {
     
     /**
      * Represents persons who have been biometrically verified at an Orb. Highest level of proof of personhood verification.
@@ -4597,8 +4554,12 @@ public enum CredentialType {
      * Represents a semi-unique device
      */
     case device
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension CredentialType: Sendable {}
@@ -4665,13 +4626,6 @@ public func FfiConverterTypeCredentialType_lower(_ value: CredentialType) -> Rus
 }
 
 
-extension CredentialType: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
@@ -4682,7 +4636,7 @@ extension CredentialType: Equatable, Hashable {}
  * More information on testing for the World ID Protocol can be found in: `https://docs.world.org/world-id/quick-start/testing`
  */
 
-public enum Environment {
+public enum Environment: Equatable, Hashable {
     
     /**
      * For testing purposes ONLY.
@@ -4692,8 +4646,12 @@ public enum Environment {
      * Live production environment. World ID Tree: `id.worldcoin.eth`
      */
     case production
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension Environment: Sendable {}
@@ -4748,13 +4706,6 @@ public func FfiConverterTypeEnvironment_lower(_ value: Environment) -> RustBuffe
 }
 
 
-extension Environment: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
@@ -4763,7 +4714,7 @@ extension Environment: Equatable, Hashable {}
  * This enum represents the severity levels that can be used when logging messages.
  */
 
-public enum LogLevel {
+public enum LogLevel: Equatable, Hashable {
     
     /**
      * Designates very low priority, often extremely detailed messages.
@@ -4785,8 +4736,12 @@ public enum LogLevel {
      * Designates error events that might still allow the application to continue running.
      */
     case error
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension LogLevel: Sendable {}
@@ -4859,20 +4814,13 @@ public func FfiConverterTypeLogLevel_lower(_ value: LogLevel) -> RustBuffer {
 }
 
 
-extension LogLevel: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
  * Registration status for a World ID being created through the gateway.
  */
 
-public enum RegistrationStatus {
+public enum RegistrationStatus: Equatable, Hashable {
     
     /**
      * Request queued but not yet batched.
@@ -4901,8 +4849,12 @@ public enum RegistrationStatus {
          * Specific error code, if available.
          */errorCode: String?
     )
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension RegistrationStatus: Sendable {}
@@ -4978,20 +4930,13 @@ public func FfiConverterTypeRegistrationStatus_lower(_ value: RegistrationStatus
 }
 
 
-extension RegistrationStatus: Equatable, Hashable {}
-
-
-
-
-
-
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
  * FFI-friendly replay guard result kind.
  */
 
-public enum ReplayGuardKind {
+public enum ReplayGuardKind: Equatable, Hashable {
     
     /**
      * Stored bytes for the first disclosure of a request.
@@ -5001,8 +4946,12 @@ public enum ReplayGuardKind {
      * Stored bytes replayed for an existing request.
      */
     case replay
-}
 
+
+
+
+
+}
 
 #if compiler(>=6)
 extension ReplayGuardKind: Sendable {}
@@ -5057,18 +5006,11 @@ public func FfiConverterTypeReplayGuardKind_lower(_ value: ReplayGuardKind) -> R
 }
 
 
-extension ReplayGuardKind: Equatable, Hashable {}
-
-
-
-
-
-
 
 /**
  * Errors raised by credential storage primitives.
  */
-public enum StorageError: Swift.Error {
+public enum StorageError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
     
     
@@ -5146,12 +5088,33 @@ public enum StorageError: Swift.Error {
      */
     case CredentialNotFound
     /**
+     * Corrupted cache entry
+     */
+    case CorruptedCacheEntry(
+        /**
+         * The prefix of the corrupted cache entry (identifies the type of entry).
+         */keyPrefix: UInt8
+    )
+    /**
      * Unexpected `UniFFI` callback error.
      */
     case UnexpectedUniFfiCallbackError(String
     )
+
+    
+
+    
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
 }
 
+#if compiler(>=6)
+extension StorageError: Sendable {}
+#endif
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -5203,7 +5166,10 @@ public struct FfiConverterTypeStorageError: FfiConverterRustBuffer {
         case 12: return .NotInitialized
         case 13: return .NullifierAlreadyDisclosed
         case 14: return .CredentialNotFound
-        case 15: return .UnexpectedUniFfiCallbackError(
+        case 15: return .CorruptedCacheEntry(
+            keyPrefix: try FfiConverterUInt8.read(from: &buf)
+            )
+        case 16: return .UnexpectedUniFfiCallbackError(
             try FfiConverterString.read(from: &buf)
             )
 
@@ -5286,8 +5252,13 @@ public struct FfiConverterTypeStorageError: FfiConverterRustBuffer {
             writeInt(&buf, Int32(14))
         
         
-        case let .UnexpectedUniFfiCallbackError(v1):
+        case let .CorruptedCacheEntry(keyPrefix):
             writeInt(&buf, Int32(15))
+            FfiConverterUInt8.write(keyPrefix, into: &buf)
+            
+        
+        case let .UnexpectedUniFfiCallbackError(v1):
+            writeInt(&buf, Int32(16))
             FfiConverterString.write(v1, into: &buf)
             
         }
@@ -5310,25 +5281,10 @@ public func FfiConverterTypeStorageError_lower(_ value: StorageError) -> RustBuf
 }
 
 
-extension StorageError: Equatable, Hashable {}
-
-
-
-
-extension StorageError: Foundation.LocalizedError {
-    public var errorDescription: String? {
-        String(reflecting: self)
-    }
-}
-
-
-
-
-
 /**
  * Error outputs from `WalletKit`
  */
-public enum WalletKitError: Swift.Error {
+public enum WalletKitError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
     
     
@@ -5426,8 +5382,21 @@ public enum WalletKitError: Swift.Error {
          * The details of the error
          */error: String
     )
+
+    
+
+    
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
 }
 
+#if compiler(>=6)
+extension WalletKitError: Sendable {}
+#endif
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
@@ -5569,21 +5538,6 @@ public func FfiConverterTypeWalletKitError_lower(_ value: WalletKitError) -> Rus
     return FfiConverterTypeWalletKitError.lower(value)
 }
 
-
-extension WalletKitError: Equatable, Hashable {}
-
-
-
-
-extension WalletKitError: Foundation.LocalizedError {
-    public var errorDescription: String? {
-        String(reflecting: self)
-    }
-}
-
-
-
-
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
@@ -5708,31 +5662,6 @@ fileprivate struct FfiConverterSequenceUInt64: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
-    typealias SwiftType = [String]
-
-    public static func write(_ value: [String], into buf: inout [UInt8]) {
-        let len = Int32(value.count)
-        writeInt(&buf, len)
-        for item in value {
-            FfiConverterString.write(item, into: &buf)
-        }
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String] {
-        let len: Int32 = try readInt(&buf)
-        var seq = [String]()
-        seq.reserveCapacity(Int(len))
-        for _ in 0 ..< len {
-            seq.append(try FfiConverterString.read(from: &buf))
-        }
-        return seq
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
 fileprivate struct FfiConverterSequenceTypeCredentialRecord: FfiConverterRustBuffer {
     typealias SwiftType = [CredentialRecord]
 
@@ -5755,7 +5684,7 @@ fileprivate struct FfiConverterSequenceTypeCredentialRecord: FfiConverterRustBuf
     }
 }
 private let UNIFFI_RUST_FUTURE_POLL_READY: Int8 = 0
-private let UNIFFI_RUST_FUTURE_POLL_MAYBE_READY: Int8 = 1
+private let UNIFFI_RUST_FUTURE_POLL_WAKE: Int8 = 1
 
 fileprivate let uniffiContinuationHandleMap = UniffiHandleMap<UnsafeContinuation<Int8, Never>>()
 
@@ -5779,7 +5708,9 @@ fileprivate func uniffiRustCallAsync<F, T>(
         pollResult = await withUnsafeContinuation {
             pollFunc(
                 rustFuture,
-                uniffiFutureContinuationCallback,
+                { handle, pollResult in
+                    uniffiFutureContinuationCallback(handle: handle, pollResult: pollResult)
+                },
                 uniffiContinuationHandleMap.insert(obj: $0)
             )
         }
@@ -5834,217 +5765,208 @@ private enum InitializationResult {
 // the code inside is only computed once.
 private let initializationResult: InitializationResult = {
     // Get the bindings contract version from our ComponentInterface
-    let bindings_contract_version = 29
+    let bindings_contract_version = 30
     // Get the scaffolding contract version by calling the into the dylib
     let scaffolding_contract_version = ffi_walletkit_core_uniffi_contract_version()
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
-    if (uniffi_walletkit_core_checksum_func_set_logger() != 57797) {
+    if (uniffi_walletkit_core_checksum_func_set_logger() != 44772) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_addressbook_generate_proof_context() != 65509) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_get_packed_account_data_remote() != 45330) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_atomicblobstore_read() != 44189) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_leaf_index() != 42995) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_atomicblobstore_write_atomic() != 57047) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_onchain_address() != 44374) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_atomicblobstore_delete() != 36326) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_packed_account_data() != 7830) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_fetch_inclusion_proof_cached() != 20234) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_init_storage() != 17038) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_generate_proof_with_replay_guard() != 49767) {
+    if (uniffi_walletkit_core_checksum_method_initializingauthenticator_poll_status() != 61377) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_get_packed_account_data_remote() != 45) {
+    if (uniffi_walletkit_core_checksum_method_addressbook_generate_proof_context() != 41578) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_init_storage() != 48654) {
+    if (uniffi_walletkit_core_checksum_method_logger_log() != 33653) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_leaf_index() != 55368) {
+    if (uniffi_walletkit_core_checksum_method_proofcontext_get_credential_type() != 23919) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_onchain_address() != 20240) {
+    if (uniffi_walletkit_core_checksum_method_proofcontext_get_external_nullifier() != 41970) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_packed_account_data() != 48015) {
+    if (uniffi_walletkit_core_checksum_method_proofcontext_get_signal_hash() != 18475) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_begin_replay_guard() != 44086) {
+    if (uniffi_walletkit_core_checksum_method_proofoutput_get_credential_type() != 51984) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_init() != 25655) {
+    if (uniffi_walletkit_core_checksum_method_proofoutput_get_merkle_root() != 25341) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_list_credentials() != 8452) {
+    if (uniffi_walletkit_core_checksum_method_proofoutput_get_nullifier_hash() != 38233) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_merkle_cache_get() != 34804) {
+    if (uniffi_walletkit_core_checksum_method_proofoutput_get_proof_as_string() != 46984) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_merkle_cache_put() != 8522) {
+    if (uniffi_walletkit_core_checksum_method_proofoutput_to_json() != 57591) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_replay_guard_get() != 26906) {
+    if (uniffi_walletkit_core_checksum_method_proofrequest_to_json() != 9108) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_storage_paths() != 31883) {
+    if (uniffi_walletkit_core_checksum_method_proofresponse_to_json() != 52077) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_store_credential() != 22109) {
+    if (uniffi_walletkit_core_checksum_method_credentialstore_init() != 6887) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_devicekeystore_seal() != 31379) {
+    if (uniffi_walletkit_core_checksum_method_credentialstore_list_credentials() != 10253) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_devicekeystore_open_sealed() != 13838) {
+    if (uniffi_walletkit_core_checksum_method_credentialstore_merkle_cache_get() != 47950) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_initializingauthenticator_poll_status() != 1463) {
+    if (uniffi_walletkit_core_checksum_method_credentialstore_merkle_cache_put() != 32651) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_logger_log() != 32531) {
+    if (uniffi_walletkit_core_checksum_method_credentialstore_storage_paths() != 17739) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_proofcontext_get_credential_type() != 23302) {
+    if (uniffi_walletkit_core_checksum_method_credentialstore_store_credential() != 42777) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_proofcontext_get_external_nullifier() != 2388) {
+    if (uniffi_walletkit_core_checksum_method_storagepaths_cache_db_path_string() != 19078) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_proofcontext_get_signal_hash() != 57766) {
+    if (uniffi_walletkit_core_checksum_method_storagepaths_lock_path_string() != 45603) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_proofoutput_get_credential_type() != 23311) {
+    if (uniffi_walletkit_core_checksum_method_storagepaths_root_path_string() != 17906) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_proofoutput_get_merkle_root() != 19502) {
+    if (uniffi_walletkit_core_checksum_method_storagepaths_vault_db_path_string() != 24656) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_proofoutput_get_nullifier_hash() != 43933) {
+    if (uniffi_walletkit_core_checksum_method_storagepaths_worldid_dir_path_string() != 55994) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_proofoutput_get_proof_as_string() != 3072) {
+    if (uniffi_walletkit_core_checksum_method_atomicblobstore_read() != 6014) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_proofoutput_to_json() != 57737) {
+    if (uniffi_walletkit_core_checksum_method_atomicblobstore_write_atomic() != 13007) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_storagepaths_cache_db_path_string() != 3315) {
+    if (uniffi_walletkit_core_checksum_method_atomicblobstore_delete() != 48362) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_storagepaths_lock_path_string() != 47091) {
+    if (uniffi_walletkit_core_checksum_method_devicekeystore_seal() != 2139) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_storagepaths_root_path_string() != 15513) {
+    if (uniffi_walletkit_core_checksum_method_devicekeystore_open_sealed() != 11049) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_storagepaths_vault_db_path_string() != 48541) {
+    if (uniffi_walletkit_core_checksum_method_storageprovider_keystore() != 19849) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_storagepaths_worldid_dir_path_string() != 45505) {
+    if (uniffi_walletkit_core_checksum_method_storageprovider_blob_store() != 713) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_storageprovider_keystore() != 16820) {
+    if (uniffi_walletkit_core_checksum_method_storageprovider_paths() != 46848) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_storageprovider_blob_store() != 9190) {
+    if (uniffi_walletkit_core_checksum_method_u256wrapper_into_limbs() != 29402) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_storageprovider_paths() != 57665) {
+    if (uniffi_walletkit_core_checksum_method_u256wrapper_to_decimal_string() != 7951) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_u256wrapper_into_limbs() != 40163) {
+    if (uniffi_walletkit_core_checksum_method_u256wrapper_to_hex_string() != 64641) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_u256wrapper_to_decimal_string() != 33044) {
+    if (uniffi_walletkit_core_checksum_method_worldid_generate_nullifier_hash() != 23228) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_u256wrapper_to_hex_string() != 54248) {
+    if (uniffi_walletkit_core_checksum_method_worldid_generate_proof() != 809) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_worldid_generate_nullifier_hash() != 17853) {
+    if (uniffi_walletkit_core_checksum_method_worldid_get_identity_commitment() != 261) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_worldid_generate_proof() != 46586) {
+    if (uniffi_walletkit_core_checksum_method_worldid_is_equal_to() != 28490) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_worldid_get_identity_commitment() != 46113) {
+    if (uniffi_walletkit_core_checksum_constructor_authenticator_init() != 64371) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_worldid_is_equal_to() != 12875) {
+    if (uniffi_walletkit_core_checksum_constructor_authenticator_init_with_defaults() != 42244) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_addressbook_new() != 33384) {
+    if (uniffi_walletkit_core_checksum_constructor_initializingauthenticator_register() != 35471) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_authenticator_init() != 17812) {
+    if (uniffi_walletkit_core_checksum_constructor_initializingauthenticator_register_with_defaults() != 54831) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_authenticator_init_or_register() != 61522) {
+    if (uniffi_walletkit_core_checksum_constructor_addressbook_new() != 34140) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_authenticator_init_or_register_with_defaults() != 61650) {
+    if (uniffi_walletkit_core_checksum_constructor_merkletreeproof_from_identity_commitment() != 28005) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_authenticator_init_with_defaults() != 55370) {
+    if (uniffi_walletkit_core_checksum_constructor_merkletreeproof_from_json_proof() != 23376) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_credentialstore_from_provider_arc() != 15088) {
+    if (uniffi_walletkit_core_checksum_constructor_proofcontext_legacy_new_from_pre_image_external_nullifier() != 35408) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_credentialstore_new_with_components() != 49336) {
+    if (uniffi_walletkit_core_checksum_constructor_proofcontext_legacy_new_from_raw_external_nullifier() != 29000) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_initializingauthenticator_register() != 54546) {
+    if (uniffi_walletkit_core_checksum_constructor_proofcontext_new() != 39972) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_initializingauthenticator_register_with_defaults() != 15960) {
+    if (uniffi_walletkit_core_checksum_constructor_proofcontext_new_from_bytes() != 11175) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_merkletreeproof_from_identity_commitment() != 33610) {
+    if (uniffi_walletkit_core_checksum_constructor_proofcontext_new_from_signal_hash() != 44960) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_merkletreeproof_from_json_proof() != 37954) {
+    if (uniffi_walletkit_core_checksum_constructor_proofrequest_from_json() != 35928) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_proofcontext_legacy_new_from_pre_image_external_nullifier() != 18235) {
+    if (uniffi_walletkit_core_checksum_constructor_credentialstore_from_provider_arc() != 5144) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_proofcontext_legacy_new_from_raw_external_nullifier() != 7785) {
+    if (uniffi_walletkit_core_checksum_constructor_credentialstore_new_with_components() != 51696) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_proofcontext_new() != 53136) {
+    if (uniffi_walletkit_core_checksum_constructor_storagepaths_from_root() != 48567) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_proofcontext_new_from_bytes() != 40283) {
+    if (uniffi_walletkit_core_checksum_constructor_u256wrapper_from_limbs() != 24492) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_proofcontext_new_from_signal_hash() != 45451) {
+    if (uniffi_walletkit_core_checksum_constructor_u256wrapper_from_u32() != 25992) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_storagepaths_from_root() != 12903) {
+    if (uniffi_walletkit_core_checksum_constructor_u256wrapper_from_u64() != 60966) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_u256wrapper_from_limbs() != 55436) {
+    if (uniffi_walletkit_core_checksum_constructor_u256wrapper_try_from_hex_string() != 38375) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_u256wrapper_from_u32() != 23290) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_walletkit_core_checksum_constructor_u256wrapper_from_u64() != 34597) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_walletkit_core_checksum_constructor_u256wrapper_try_from_hex_string() != 7382) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_walletkit_core_checksum_constructor_worldid_new() != 28488) {
+    if (uniffi_walletkit_core_checksum_constructor_worldid_new() != 45261) {
         return InitializationResult.apiChecksumMismatch
     }
 

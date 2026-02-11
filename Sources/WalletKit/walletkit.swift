@@ -1060,7 +1060,7 @@ public protocol AuthenticatorProtocol: AnyObject, Sendable {
      * This is the index in the Merkle tree where the holder's World ID account is registered. It
      * should only be used inside the authenticator and never shared.
      */
-    func leafIndex()  -> U256Wrapper
+    func leafIndex()  -> UInt64
     
     /**
      * Returns the Authenticator's `onchain_address`.
@@ -1220,8 +1220,8 @@ open func getPackedAccountDataRemote()async throws  -> U256Wrapper  {
      * This is the index in the Merkle tree where the holder's World ID account is registered. It
      * should only be used inside the authenticator and never shared.
      */
-open func leafIndex() -> U256Wrapper  {
-    return try!  FfiConverterTypeU256Wrapper_lift(try! rustCall() {
+open func leafIndex() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
     uniffi_walletkit_core_fn_method_authenticator_leaf_index(
             self.uniffiCloneHandle(),$0
     )
@@ -5777,7 +5777,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_authenticator_get_packed_account_data_remote() != 45330) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_leaf_index() != 42995) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_leaf_index() != 2189) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_authenticator_onchain_address() != 44374) {

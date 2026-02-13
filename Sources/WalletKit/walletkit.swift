@@ -882,7 +882,7 @@ fileprivate struct UniffiCallbackInterfaceAtomicBlobStore {
     //
     // This creates 1-element array, since this seems to be the only way to construct a const
     // pointer that we can pass to the Rust code.
-    static let vtable: [UniffiVTableCallbackInterfaceAtomicBlobStore] = [UniffiVTableCallbackInterfaceAtomicBlobStore(
+    static let vtable: UniffiVTableCallbackInterfaceAtomicBlobStore = UniffiVTableCallbackInterfaceAtomicBlobStore(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
                 try FfiConverterTypeAtomicBlobStore.handleMap.remove(handle: uniffiHandle)
@@ -974,11 +974,19 @@ fileprivate struct UniffiCallbackInterfaceAtomicBlobStore {
                 lowerError: FfiConverterTypeStorageError_lower
             )
         }
-    )]
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceAtomicBlobStore> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceAtomicBlobStore>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
 }
 
 private func uniffiCallbackInitAtomicBlobStore() {
-    uniffi_walletkit_core_fn_init_callback_vtable_atomicblobstore(UniffiCallbackInterfaceAtomicBlobStore.vtable)
+    uniffi_walletkit_core_fn_init_callback_vtable_atomicblobstore(UniffiCallbackInterfaceAtomicBlobStore.vtablePtr)
 }
 
 #if swift(>=5.8)
@@ -1761,7 +1769,7 @@ fileprivate struct UniffiCallbackInterfaceDeviceKeystore {
     //
     // This creates 1-element array, since this seems to be the only way to construct a const
     // pointer that we can pass to the Rust code.
-    static let vtable: [UniffiVTableCallbackInterfaceDeviceKeystore] = [UniffiVTableCallbackInterfaceDeviceKeystore(
+    static let vtable: UniffiVTableCallbackInterfaceDeviceKeystore = UniffiVTableCallbackInterfaceDeviceKeystore(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
                 try FfiConverterTypeDeviceKeystore.handleMap.remove(handle: uniffiHandle)
@@ -1830,11 +1838,19 @@ fileprivate struct UniffiCallbackInterfaceDeviceKeystore {
                 lowerError: FfiConverterTypeStorageError_lower
             )
         }
-    )]
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceDeviceKeystore> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceDeviceKeystore>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
 }
 
 private func uniffiCallbackInitDeviceKeystore() {
-    uniffi_walletkit_core_fn_init_callback_vtable_devicekeystore(UniffiCallbackInterfaceDeviceKeystore.vtable)
+    uniffi_walletkit_core_fn_init_callback_vtable_devicekeystore(UniffiCallbackInterfaceDeviceKeystore.vtablePtr)
 }
 
 #if swift(>=5.8)
@@ -2279,7 +2295,7 @@ fileprivate struct UniffiCallbackInterfaceLogger {
     //
     // This creates 1-element array, since this seems to be the only way to construct a const
     // pointer that we can pass to the Rust code.
-    static let vtable: [UniffiVTableCallbackInterfaceLogger] = [UniffiVTableCallbackInterfaceLogger(
+    static let vtable: UniffiVTableCallbackInterfaceLogger = UniffiVTableCallbackInterfaceLogger(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
                 try FfiConverterTypeLogger.handleMap.remove(handle: uniffiHandle)
@@ -2320,11 +2336,19 @@ fileprivate struct UniffiCallbackInterfaceLogger {
                 writeReturn: writeReturn
             )
         }
-    )]
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceLogger> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceLogger>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
 }
 
 private func uniffiCallbackInitLogger() {
-    uniffi_walletkit_core_fn_init_callback_vtable_logger(UniffiCallbackInterfaceLogger.vtable)
+    uniffi_walletkit_core_fn_init_callback_vtable_logger(UniffiCallbackInterfaceLogger.vtablePtr)
 }
 
 #if swift(>=5.8)
@@ -3630,7 +3654,7 @@ fileprivate struct UniffiCallbackInterfaceStorageProvider {
     //
     // This creates 1-element array, since this seems to be the only way to construct a const
     // pointer that we can pass to the Rust code.
-    static let vtable: [UniffiVTableCallbackInterfaceStorageProvider] = [UniffiVTableCallbackInterfaceStorageProvider(
+    static let vtable: UniffiVTableCallbackInterfaceStorageProvider = UniffiVTableCallbackInterfaceStorageProvider(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
                 try FfiConverterTypeStorageProvider.handleMap.remove(handle: uniffiHandle)
@@ -3711,11 +3735,19 @@ fileprivate struct UniffiCallbackInterfaceStorageProvider {
                 writeReturn: writeReturn
             )
         }
-    )]
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceStorageProvider> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceStorageProvider>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
 }
 
 private func uniffiCallbackInitStorageProvider() {
-    uniffi_walletkit_core_fn_init_callback_vtable_storageprovider(UniffiCallbackInterfaceStorageProvider.vtable)
+    uniffi_walletkit_core_fn_init_callback_vtable_storageprovider(UniffiCallbackInterfaceStorageProvider.vtablePtr)
 }
 
 #if swift(>=5.8)

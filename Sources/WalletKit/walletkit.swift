@@ -1055,6 +1055,31 @@ public func FfiConverterTypeAtomicBlobStore_lower(_ value: AtomicBlobStore) -> U
 public protocol AuthenticatorProtocol: AnyObject, Sendable {
     
     /**
+     * Compute the `sub` for a credential from the authenticator's leaf index and a `blinding_factor`.
+     */
+    func computeCredentialSub(blindingFactor: FieldElement)  -> FieldElement
+    
+    /**
+     * Generates a blinding factor for a Credential sub (through OPRF Nodes).
+     *
+     * See [`CoreAuthenticator::generate_credential_blinding_factor`] for more details.
+     *
+     * # Errors
+     *
+     * - Will generally error if there are network issues or if the OPRF Nodes return an error.
+     * - Raises an error if the OPRF Nodes configuration is not correctly set.
+     */
+    func generateCredentialBlindingFactorRemote(issuerSchemaId: UInt64) async throws  -> FieldElement
+    
+    /**
+     * Generates a proof for the given proof request.
+     *
+     * # Errors
+     * Returns an error if proof generation fails.
+     */
+    func generateProof(proofRequest: ProofRequest, now: UInt64?) async throws  -> ProofResponse
+    
+    /**
      * Returns the packed account data for the holder's World ID fetching it from the on-chain registry.
      *
      * # Errors
@@ -1200,6 +1225,68 @@ public static func initWithDefaults(seed: Data, rpcUrl: String?, environment: En
 
     
     /**
+     * Compute the `sub` for a credential from the authenticator's leaf index and a `blinding_factor`.
+     */
+open func computeCredentialSub(blindingFactor: FieldElement) -> FieldElement  {
+    return try!  FfiConverterTypeFieldElement_lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_authenticator_compute_credential_sub(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeFieldElement_lower(blindingFactor),$0
+    )
+})
+}
+    
+    /**
+     * Generates a blinding factor for a Credential sub (through OPRF Nodes).
+     *
+     * See [`CoreAuthenticator::generate_credential_blinding_factor`] for more details.
+     *
+     * # Errors
+     *
+     * - Will generally error if there are network issues or if the OPRF Nodes return an error.
+     * - Raises an error if the OPRF Nodes configuration is not correctly set.
+     */
+open func generateCredentialBlindingFactorRemote(issuerSchemaId: UInt64)async throws  -> FieldElement  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_authenticator_generate_credential_blinding_factor_remote(
+                    self.uniffiCloneHandle(),
+                    FfiConverterUInt64.lower(issuerSchemaId)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_u64,
+            completeFunc: ffi_walletkit_core_rust_future_complete_u64,
+            freeFunc: ffi_walletkit_core_rust_future_free_u64,
+            liftFunc: FfiConverterTypeFieldElement_lift,
+            errorHandler: FfiConverterTypeWalletKitError_lift
+        )
+}
+    
+    /**
+     * Generates a proof for the given proof request.
+     *
+     * # Errors
+     * Returns an error if proof generation fails.
+     */
+open func generateProof(proofRequest: ProofRequest, now: UInt64?)async throws  -> ProofResponse  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_authenticator_generate_proof(
+                    self.uniffiCloneHandle(),
+                    FfiConverterTypeProofRequest_lower(proofRequest),FfiConverterOptionUInt64.lower(now)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_u64,
+            completeFunc: ffi_walletkit_core_rust_future_complete_u64,
+            freeFunc: ffi_walletkit_core_rust_future_free_u64,
+            liftFunc: FfiConverterTypeProofResponse_lift,
+            errorHandler: FfiConverterTypeWalletKitError_lift
+        )
+}
+    
+    /**
      * Returns the packed account data for the holder's World ID fetching it from the on-chain registry.
      *
      * # Errors
@@ -1329,6 +1416,171 @@ public func FfiConverterTypeAuthenticator_lower(_ value: Authenticator) -> UInt6
 
 
 /**
+ * A wrapper around [`CoreCredential`] to enable FFI interoperability.
+ *
+ * Encapsulates the credential and exposes accessors for fields that FFI
+ * callers need.
+ */
+public protocol CredentialProtocol: AnyObject, Sendable {
+    
+    /**
+     * Returns the credential's issuer schema ID.
+     */
+    func issuerSchemaId()  -> UInt64
+    
+    /**
+     * Returns the credential's `sub` field element.
+     */
+    func sub()  -> FieldElement
+    
+}
+/**
+ * A wrapper around [`CoreCredential`] to enable FFI interoperability.
+ *
+ * Encapsulates the credential and exposes accessors for fields that FFI
+ * callers need.
+ */
+open class Credential: CredentialProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_credential(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_credential(handle, $0) }
+    }
+
+    
+    /**
+     * Deserializes a `Credential` from a JSON byte blob.
+     *
+     * # Errors
+     *
+     * Returns an error if the bytes cannot be deserialized.
+     */
+public static func fromBytes(bytes: Data)throws  -> Credential  {
+    return try  FfiConverterTypeCredential_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+    uniffi_walletkit_core_fn_constructor_credential_from_bytes(
+        FfiConverterData.lower(bytes),$0
+    )
+})
+}
+    
+
+    
+    /**
+     * Returns the credential's issuer schema ID.
+     */
+open func issuerSchemaId() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_credential_issuer_schema_id(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Returns the credential's `sub` field element.
+     */
+open func sub() -> FieldElement  {
+    return try!  FfiConverterTypeFieldElement_lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_credential_sub(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCredential: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = Credential
+
+    public static func lift(_ handle: UInt64) throws -> Credential {
+        return Credential(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: Credential) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Credential {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: Credential, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCredential_lift(_ handle: UInt64) throws -> Credential {
+    return try FfiConverterTypeCredential.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCredential_lower(_ value: Credential) -> UInt64 {
+    return FfiConverterTypeCredential.lower(value)
+}
+
+
+
+
+
+
+/**
  * Concrete storage implementation backed by `SQLCipher` databases.
  */
 public protocol CredentialStoreProtocol: AnyObject, Sendable {
@@ -1385,7 +1637,7 @@ public protocol CredentialStoreProtocol: AnyObject, Sendable {
      *
      * Returns an error if the credential cannot be stored.
      */
-    func storeCredential(issuerSchemaId: UInt64, subjectBlindingFactor: Data, genesisIssuedAt: UInt64, expiresAt: UInt64, credentialBlob: Data, associatedData: Data?, now: UInt64) throws  -> UInt64
+    func storeCredential(credential: Credential, blindingFactor: FieldElement, expiresAt: UInt64, associatedData: Data?, now: UInt64) throws  -> UInt64
     
 }
 /**
@@ -1564,15 +1816,13 @@ open func storagePaths()throws  -> StoragePaths  {
      *
      * Returns an error if the credential cannot be stored.
      */
-open func storeCredential(issuerSchemaId: UInt64, subjectBlindingFactor: Data, genesisIssuedAt: UInt64, expiresAt: UInt64, credentialBlob: Data, associatedData: Data?, now: UInt64)throws  -> UInt64  {
+open func storeCredential(credential: Credential, blindingFactor: FieldElement, expiresAt: UInt64, associatedData: Data?, now: UInt64)throws  -> UInt64  {
     return try  FfiConverterUInt64.lift(try rustCallWithError(FfiConverterTypeStorageError_lift) {
     uniffi_walletkit_core_fn_method_credentialstore_store_credential(
             self.uniffiCloneHandle(),
-        FfiConverterUInt64.lower(issuerSchemaId),
-        FfiConverterData.lower(subjectBlindingFactor),
-        FfiConverterUInt64.lower(genesisIssuedAt),
+        FfiConverterTypeCredential_lower(credential),
+        FfiConverterTypeFieldElement_lower(blindingFactor),
         FfiConverterUInt64.lower(expiresAt),
-        FfiConverterData.lower(credentialBlob),
         FfiConverterOptionData.lower(associatedData),
         FfiConverterUInt64.lower(now),$0
     )
@@ -1906,6 +2156,227 @@ public func FfiConverterTypeDeviceKeystore_lift(_ handle: UInt64) throws -> Devi
 #endif
 public func FfiConverterTypeDeviceKeystore_lower(_ value: DeviceKeystore) -> UInt64 {
     return FfiConverterTypeDeviceKeystore.lower(value)
+}
+
+
+
+
+
+
+/**
+ * A wrapper around `FieldElement` to enable FFI interoperability.
+ *
+ * `FieldElement` represents an element in a finite field used in the World ID Protocol's
+ * zero-knowledge proofs. This wrapper allows the type to be safely passed across FFI boundaries
+ * while maintaining proper serialization and deserialization semantics.
+ *
+ * Field elements are typically 32 bytes when serialized.
+ */
+public protocol FieldElementProtocol: AnyObject, Sendable {
+    
+    /**
+     * Serializes the field element to bytes.
+     *
+     * Returns a byte vector representing the field element.
+     *
+     * # Errors
+     *
+     * Returns an error if serialization fails.
+     */
+    func toBytes() throws  -> Data
+    
+    /**
+     * Converts the field element to a hex string.
+     *
+     * # Errors
+     *
+     * Returns an error if serialization fails.
+     */
+    func toHexString() throws  -> String
+    
+}
+/**
+ * A wrapper around `FieldElement` to enable FFI interoperability.
+ *
+ * `FieldElement` represents an element in a finite field used in the World ID Protocol's
+ * zero-knowledge proofs. This wrapper allows the type to be safely passed across FFI boundaries
+ * while maintaining proper serialization and deserialization semantics.
+ *
+ * Field elements are typically 32 bytes when serialized.
+ */
+open class FieldElement: FieldElementProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_fieldelement(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_fieldelement(handle, $0) }
+    }
+
+    
+    /**
+     * Creates a `FieldElement` from raw bytes.
+     *
+     * # Errors
+     *
+     * Returns an error if the bytes cannot be deserialized into a valid field element.
+     */
+public static func fromBytes(bytes: Data)throws  -> FieldElement  {
+    return try  FfiConverterTypeFieldElement_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+    uniffi_walletkit_core_fn_constructor_fieldelement_from_bytes(
+        FfiConverterData.lower(bytes),$0
+    )
+})
+}
+    
+    /**
+     * Creates a `FieldElement` from a `u64` value.
+     *
+     * This is useful for testing or when working with small field element values.
+     */
+public static func fromU64(value: UInt64) -> FieldElement  {
+    return try!  FfiConverterTypeFieldElement_lift(try! rustCall() {
+    uniffi_walletkit_core_fn_constructor_fieldelement_from_u64(
+        FfiConverterUInt64.lower(value),$0
+    )
+})
+}
+    
+    /**
+     * Creates a `FieldElement` from a hex string.
+     *
+     * The hex string can optionally start with "0x".
+     *
+     * # Errors
+     *
+     * Returns an error if the hex string is invalid or cannot be parsed.
+     */
+public static func tryFromHexString(hexString: String)throws  -> FieldElement  {
+    return try  FfiConverterTypeFieldElement_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+    uniffi_walletkit_core_fn_constructor_fieldelement_try_from_hex_string(
+        FfiConverterString.lower(hexString),$0
+    )
+})
+}
+    
+
+    
+    /**
+     * Serializes the field element to bytes.
+     *
+     * Returns a byte vector representing the field element.
+     *
+     * # Errors
+     *
+     * Returns an error if serialization fails.
+     */
+open func toBytes()throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+    uniffi_walletkit_core_fn_method_fieldelement_to_bytes(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Converts the field element to a hex string.
+     *
+     * # Errors
+     *
+     * Returns an error if serialization fails.
+     */
+open func toHexString()throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+    uniffi_walletkit_core_fn_method_fieldelement_to_hex_string(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFieldElement: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = FieldElement
+
+    public static func lift(_ handle: UInt64) throws -> FieldElement {
+        return FieldElement(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: FieldElement) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FieldElement {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: FieldElement, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFieldElement_lift(_ handle: UInt64) throws -> FieldElement {
+    return try FfiConverterTypeFieldElement.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFieldElement_lower(_ value: FieldElement) -> UInt64 {
+    return FfiConverterTypeFieldElement.lower(value)
 }
 
 
@@ -3075,6 +3546,12 @@ public func FfiConverterTypeProofOutput_lower(_ value: ProofOutput) -> UInt64 {
  */
 public protocol ProofRequestProtocol: AnyObject, Sendable {
     
+    /**
+     * Serializes the proof request to a JSON string.
+     *
+     * # Errors
+     * Returns an error if serialization fails.
+     */
     func toJson() throws  -> String
     
 }
@@ -3133,6 +3610,12 @@ open class ProofRequest: ProofRequestProtocol, @unchecked Sendable {
     }
 
     
+    /**
+     * Deserializes a `ProofRequest` from a JSON string.
+     *
+     * # Errors
+     * Returns an error if the JSON is invalid or cannot be parsed.
+     */
 public static func fromJson(json: String)throws  -> ProofRequest  {
     return try  FfiConverterTypeProofRequest_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
     uniffi_walletkit_core_fn_constructor_proofrequest_from_json(
@@ -3143,6 +3626,12 @@ public static func fromJson(json: String)throws  -> ProofRequest  {
     
 
     
+    /**
+     * Serializes the proof request to a JSON string.
+     *
+     * # Errors
+     * Returns an error if serialization fails.
+     */
 open func toJson()throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
     uniffi_walletkit_core_fn_method_proofrequest_to_json(
@@ -3208,6 +3697,12 @@ public func FfiConverterTypeProofRequest_lower(_ value: ProofRequest) -> UInt64 
  */
 public protocol ProofResponseProtocol: AnyObject, Sendable {
     
+    /**
+     * Serializes the proof response to a JSON string.
+     *
+     * # Errors
+     * Returns an error if serialization fails.
+     */
     func toJson() throws  -> String
     
 }
@@ -3269,6 +3764,12 @@ open class ProofResponse: ProofResponseProtocol, @unchecked Sendable {
     
 
     
+    /**
+     * Serializes the proof response to a JSON string.
+     *
+     * # Errors
+     * Returns an error if serialization fails.
+     */
 open func toJson()throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
     uniffi_walletkit_core_fn_method_proofresponse_to_json(
@@ -5407,6 +5908,14 @@ public enum WalletKitError: Swift.Error, Equatable, Hashable, Foundation.Localiz
          */error: String
     )
     /**
+     * The request could not be fulfilled with the credentials the user has available
+     */
+    case UnfulfillableRequest
+    /**
+     * The generated nullifier has already been used in a proof submission and cannot be used again
+     */
+    case NullifierReplay
+    /**
      * An unexpected error occurred
      */
     case Generic(
@@ -5471,7 +5980,9 @@ public struct FfiConverterTypeWalletKitError: FfiConverterRustBuffer {
         case 13: return .AuthenticatorError(
             error: try FfiConverterString.read(from: &buf)
             )
-        case 14: return .Generic(
+        case 14: return .UnfulfillableRequest
+        case 15: return .NullifierReplay
+        case 16: return .Generic(
             error: try FfiConverterString.read(from: &buf)
             )
 
@@ -5547,8 +6058,16 @@ public struct FfiConverterTypeWalletKitError: FfiConverterRustBuffer {
             FfiConverterString.write(error, into: &buf)
             
         
-        case let .Generic(error):
+        case .UnfulfillableRequest:
             writeInt(&buf, Int32(14))
+        
+        
+        case .NullifierReplay:
+            writeInt(&buf, Int32(15))
+        
+        
+        case let .Generic(error):
+            writeInt(&buf, Int32(16))
             FfiConverterString.write(error, into: &buf)
             
         }
@@ -5806,6 +6325,15 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_func_set_logger() != 44772) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_method_authenticator_compute_credential_sub() != 11498) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_authenticator_generate_credential_blinding_factor_remote() != 39820) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_authenticator_generate_proof() != 3542) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_method_authenticator_get_packed_account_data_remote() != 45330) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -5825,6 +6353,18 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_addressbook_generate_proof_context() != 41578) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_credential_issuer_schema_id() != 35384) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_credential_sub() != 28505) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_fieldelement_to_bytes() != 44718) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_fieldelement_to_hex_string() != 50430) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_logger_log() != 33653) {
@@ -5854,10 +6394,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_proofoutput_to_json() != 57591) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_proofrequest_to_json() != 9108) {
+    if (uniffi_walletkit_core_checksum_method_proofrequest_to_json() != 43149) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_proofresponse_to_json() != 52077) {
+    if (uniffi_walletkit_core_checksum_method_proofresponse_to_json() != 14808) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_credentialstore_init() != 6887) {
@@ -5875,7 +6415,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_credentialstore_storage_paths() != 17739) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_store_credential() != 42777) {
+    if (uniffi_walletkit_core_checksum_method_credentialstore_store_credential() != 21664) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_storagepaths_cache_db_path_string() != 19078) {
@@ -5953,6 +6493,18 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_constructor_addressbook_new() != 34140) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_constructor_credential_from_bytes() != 47479) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_constructor_fieldelement_from_bytes() != 26239) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_constructor_fieldelement_from_u64() != 17661) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_constructor_fieldelement_try_from_hex_string() != 7854) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_constructor_merkletreeproof_from_identity_commitment() != 28005) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -5974,7 +6526,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_constructor_proofcontext_new_from_signal_hash() != 44960) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_proofrequest_from_json() != 35928) {
+    if (uniffi_walletkit_core_checksum_constructor_proofrequest_from_json() != 5834) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_credentialstore_from_provider_arc() != 5144) {

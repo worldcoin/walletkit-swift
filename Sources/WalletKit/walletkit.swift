@@ -6318,6 +6318,14 @@ public enum WalletKitError: Swift.Error, Equatable, Hashable, Foundation.Localiz
      */
     case UnfulfillableRequest
     /**
+     * The response generated didn't match the request
+     *
+     * This occurs if the response doesn't match the requested proofs - e.g. by ids
+     * or doesn't satisfy the contraints declared in the request
+     */
+    case ResponseValidation(String
+    )
+    /**
      * The generated nullifier has already been used in a proof submission and cannot be used again
      */
     case NullifierReplay
@@ -6406,15 +6414,18 @@ public struct FfiConverterTypeWalletKitError: FfiConverterRustBuffer {
             error: try FfiConverterString.read(from: &buf)
             )
         case 14: return .UnfulfillableRequest
-        case 15: return .NullifierReplay
-        case 16: return .Groth16MaterialCacheInvalid(
+        case 15: return .ResponseValidation(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 16: return .NullifierReplay
+        case 17: return .Groth16MaterialCacheInvalid(
             path: try FfiConverterString.read(from: &buf), 
             error: try FfiConverterString.read(from: &buf)
             )
-        case 17: return .Groth16MaterialEmbeddedLoad(
+        case 18: return .Groth16MaterialEmbeddedLoad(
             error: try FfiConverterString.read(from: &buf)
             )
-        case 18: return .Generic(
+        case 19: return .Generic(
             error: try FfiConverterString.read(from: &buf)
             )
 
@@ -6494,23 +6505,28 @@ public struct FfiConverterTypeWalletKitError: FfiConverterRustBuffer {
             writeInt(&buf, Int32(14))
         
         
-        case .NullifierReplay:
+        case let .ResponseValidation(v1):
             writeInt(&buf, Int32(15))
+            FfiConverterString.write(v1, into: &buf)
+            
+        
+        case .NullifierReplay:
+            writeInt(&buf, Int32(16))
         
         
         case let .Groth16MaterialCacheInvalid(path,error):
-            writeInt(&buf, Int32(16))
+            writeInt(&buf, Int32(17))
             FfiConverterString.write(path, into: &buf)
             FfiConverterString.write(error, into: &buf)
             
         
         case let .Groth16MaterialEmbeddedLoad(error):
-            writeInt(&buf, Int32(17))
+            writeInt(&buf, Int32(18))
             FfiConverterString.write(error, into: &buf)
             
         
         case let .Generic(error):
-            writeInt(&buf, Int32(18))
+            writeInt(&buf, Int32(19))
             FfiConverterString.write(error, into: &buf)
             
         }

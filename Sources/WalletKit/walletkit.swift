@@ -1183,11 +1183,11 @@ open class Authenticator: AuthenticatorProtocol, @unchecked Sendable {
      * # Errors
      * Will error if the provided seed is not valid or if the config is not valid.
      */
-public static func `init`(seed: Data, config: String, store: CredentialStore)async throws  -> Authenticator  {
+public static func `init`(seed: Data, config: String, paths: StoragePaths, store: CredentialStore)async throws  -> Authenticator  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_walletkit_core_fn_constructor_authenticator_init(FfiConverterData.lower(seed),FfiConverterString.lower(config),FfiConverterTypeCredentialStore_lower(store)
+                uniffi_walletkit_core_fn_constructor_authenticator_init(FfiConverterData.lower(seed),FfiConverterString.lower(config),FfiConverterTypeStoragePaths_lower(paths),FfiConverterTypeCredentialStore_lower(store)
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_u64,
@@ -1207,11 +1207,11 @@ public static func `init`(seed: Data, config: String, store: CredentialStore)asy
      * # Errors
      * See `CoreAuthenticator::init` for potential errors.
      */
-public static func initWithDefaults(seed: Data, rpcUrl: String?, environment: Environment, store: CredentialStore)async throws  -> Authenticator  {
+public static func initWithDefaults(seed: Data, rpcUrl: String?, environment: Environment, region: Region?, paths: StoragePaths, store: CredentialStore)async throws  -> Authenticator  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_walletkit_core_fn_constructor_authenticator_init_with_defaults(FfiConverterData.lower(seed),FfiConverterOptionString.lower(rpcUrl),FfiConverterTypeEnvironment_lower(environment),FfiConverterTypeCredentialStore_lower(store)
+                uniffi_walletkit_core_fn_constructor_authenticator_init_with_defaults(FfiConverterData.lower(seed),FfiConverterOptionString.lower(rpcUrl),FfiConverterTypeEnvironment_lower(environment),FfiConverterOptionTypeRegion.lower(region),FfiConverterTypeStoragePaths_lower(paths),FfiConverterTypeCredentialStore_lower(store)
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_u64,
@@ -2491,11 +2491,11 @@ public static func register(seed: Data, config: String, recoveryAddress: String?
      * # Errors
      * See `CoreAuthenticator::register` for potential errors.
      */
-public static func registerWithDefaults(seed: Data, rpcUrl: String?, environment: Environment, recoveryAddress: String?)async throws  -> InitializingAuthenticator  {
+public static func registerWithDefaults(seed: Data, rpcUrl: String?, environment: Environment, region: Region?, recoveryAddress: String?)async throws  -> InitializingAuthenticator  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_walletkit_core_fn_constructor_initializingauthenticator_register_with_defaults(FfiConverterData.lower(seed),FfiConverterOptionString.lower(rpcUrl),FfiConverterTypeEnvironment_lower(environment),FfiConverterOptionString.lower(recoveryAddress)
+                uniffi_walletkit_core_fn_constructor_initializingauthenticator_register_with_defaults(FfiConverterData.lower(seed),FfiConverterOptionString.lower(rpcUrl),FfiConverterTypeEnvironment_lower(environment),FfiConverterOptionTypeRegion.lower(region),FfiConverterOptionString.lower(recoveryAddress)
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_u64,
@@ -3547,12 +3547,22 @@ public func FfiConverterTypeProofOutput_lower(_ value: ProofOutput) -> UInt64 {
 public protocol ProofRequestProtocol: AnyObject, Sendable {
     
     /**
+     * Returns the unique identifier for this request.
+     */
+    func id()  -> String
+    
+    /**
      * Serializes the proof request to a JSON string.
      *
      * # Errors
      * Returns an error if serialization fails.
      */
     func toJson() throws  -> String
+    
+    /**
+     * Returns the request format version as a `u8`.
+     */
+    func version()  -> UInt8
     
 }
 /**
@@ -3627,6 +3637,17 @@ public static func fromJson(json: String)throws  -> ProofRequest  {
 
     
     /**
+     * Returns the unique identifier for this request.
+     */
+open func id() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_proofrequest_id(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
      * Serializes the proof request to a JSON string.
      *
      * # Errors
@@ -3635,6 +3656,17 @@ public static func fromJson(json: String)throws  -> ProofRequest  {
 open func toJson()throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
     uniffi_walletkit_core_fn_method_proofrequest_to_json(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Returns the request format version as a `u8`.
+     */
+open func version() -> UInt8  {
+    return try!  FfiConverterUInt8.lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_proofrequest_version(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -3698,12 +3730,27 @@ public func FfiConverterTypeProofRequest_lower(_ value: ProofRequest) -> UInt64 
 public protocol ProofResponseProtocol: AnyObject, Sendable {
     
     /**
+     * Returns the top-level error message, if the entire proof request failed.
+     */
+    func error()  -> String?
+    
+    /**
+     * Returns the unique identifier for this response.
+     */
+    func id()  -> String
+    
+    /**
      * Serializes the proof response to a JSON string.
      *
      * # Errors
      * Returns an error if serialization fails.
      */
     func toJson() throws  -> String
+    
+    /**
+     * Returns the response format version as a `u8`.
+     */
+    func version()  -> UInt8
     
 }
 /**
@@ -3765,6 +3812,28 @@ open class ProofResponse: ProofResponseProtocol, @unchecked Sendable {
 
     
     /**
+     * Returns the top-level error message, if the entire proof request failed.
+     */
+open func error() -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_proofresponse_error(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Returns the unique identifier for this response.
+     */
+open func id() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_proofresponse_id(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
      * Serializes the proof response to a JSON string.
      *
      * # Errors
@@ -3773,6 +3842,17 @@ open class ProofResponse: ProofResponseProtocol, @unchecked Sendable {
 open func toJson()throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
     uniffi_walletkit_core_fn_method_proofresponse_to_json(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Returns the response format version as a `u8`.
+     */
+open func version() -> UInt8  {
+    return try!  FfiConverterUInt8.lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_proofresponse_version(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -3839,9 +3919,34 @@ public protocol StoragePathsProtocol: AnyObject, Sendable {
     func cacheDbPathString()  -> String
     
     /**
+     * Returns the path to the Groth16 material directory as a string.
+     */
+    func groth16DirPathString()  -> String
+    
+    /**
      * Returns the path to the lock file as a string.
      */
     func lockPathString()  -> String
+    
+    /**
+     * Returns the path to the nullifier graph file as a string.
+     */
+    func nullifierGraphPathString()  -> String
+    
+    /**
+     * Returns the path to the nullifier zkey file as a string.
+     */
+    func nullifierZkeyPathString()  -> String
+    
+    /**
+     * Returns the path to the query graph file as a string.
+     */
+    func queryGraphPathString()  -> String
+    
+    /**
+     * Returns the path to the query zkey file as a string.
+     */
+    func queryZkeyPathString()  -> String
     
     /**
      * Returns the storage root directory as a string.
@@ -3938,11 +4043,66 @@ open func cacheDbPathString() -> String  {
 }
     
     /**
+     * Returns the path to the Groth16 material directory as a string.
+     */
+open func groth16DirPathString() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_storagepaths_groth16_dir_path_string(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
      * Returns the path to the lock file as a string.
      */
 open func lockPathString() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_walletkit_core_fn_method_storagepaths_lock_path_string(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Returns the path to the nullifier graph file as a string.
+     */
+open func nullifierGraphPathString() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_storagepaths_nullifier_graph_path_string(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Returns the path to the nullifier zkey file as a string.
+     */
+open func nullifierZkeyPathString() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_storagepaths_nullifier_zkey_path_string(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Returns the path to the query graph file as a string.
+     */
+open func queryGraphPathString() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_storagepaths_query_graph_path_string(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Returns the path to the query zkey file as a string.
+     */
+open func queryZkeyPathString() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_storagepaths_query_zkey_path_string(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -4304,6 +4464,166 @@ public func FfiConverterTypeStorageProvider_lift(_ handle: UInt64) throws -> Sto
 #endif
 public func FfiConverterTypeStorageProvider_lower(_ value: StorageProvider) -> UInt64 {
     return FfiConverterTypeStorageProvider.lower(value)
+}
+
+
+
+
+
+
+/**
+ * TFH NFC credential issuer API client
+ */
+public protocol TfhNfcIssuerProtocol: AnyObject, Sendable {
+    
+    /**
+     * Refresh an NFC credential (migrate PCP to v4).
+     *
+     * Calls the `/v2/refresh` endpoint and returns a parsed [`Credential`].
+     *
+     * # Errors
+     *
+     * Returns error on network failure or invalid response.
+     */
+    func refreshNfcCredential(requestBody: String, headers: [String: String]) async throws  -> Credential
+    
+}
+/**
+ * TFH NFC credential issuer API client
+ */
+open class TfhNfcIssuer: TfhNfcIssuerProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_tfhnfcissuer(self.handle, $0) }
+    }
+    /**
+     * Create a new TFH NFC issuer for the specified environment
+     */
+public convenience init(environment: Environment) {
+    let handle =
+        try! rustCall() {
+    uniffi_walletkit_core_fn_constructor_tfhnfcissuer_new(
+        FfiConverterTypeEnvironment_lower(environment),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_tfhnfcissuer(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Refresh an NFC credential (migrate PCP to v4).
+     *
+     * Calls the `/v2/refresh` endpoint and returns a parsed [`Credential`].
+     *
+     * # Errors
+     *
+     * Returns error on network failure or invalid response.
+     */
+open func refreshNfcCredential(requestBody: String, headers: [String: String])async throws  -> Credential  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_tfhnfcissuer_refresh_nfc_credential(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(requestBody),FfiConverterDictionaryStringString.lower(headers)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_u64,
+            completeFunc: ffi_walletkit_core_rust_future_complete_u64,
+            freeFunc: ffi_walletkit_core_rust_future_free_u64,
+            liftFunc: FfiConverterTypeCredential_lift,
+            errorHandler: FfiConverterTypeWalletKitError_lift
+        )
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTfhNfcIssuer: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = TfhNfcIssuer
+
+    public static func lift(_ handle: UInt64) throws -> TfhNfcIssuer {
+        return TfhNfcIssuer(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: TfhNfcIssuer) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TfhNfcIssuer {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: TfhNfcIssuer, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTfhNfcIssuer_lift(_ handle: UInt64) throws -> TfhNfcIssuer {
+    return try FfiConverterTypeTfhNfcIssuer.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTfhNfcIssuer_lower(_ value: TfhNfcIssuer) -> UInt64 {
+    return FfiConverterTypeTfhNfcIssuer.lower(value)
 }
 
 
@@ -5350,6 +5670,92 @@ public func FfiConverterTypeLogLevel_lower(_ value: LogLevel) -> RustBuffer {
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
+ * Region for node selection.
+ */
+
+public enum Region: Equatable, Hashable {
+    
+    /**
+     * United States
+     */
+    case us
+    /**
+     * Europe (default)
+     */
+    case eu
+    /**
+     * Asia-Pacific
+     */
+    case ap
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension Region: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRegion: FfiConverterRustBuffer {
+    typealias SwiftType = Region
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Region {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .us
+        
+        case 2: return .eu
+        
+        case 3: return .ap
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: Region, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .us:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .eu:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .ap:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRegion_lift(_ buf: RustBuffer) throws -> Region {
+    return try FfiConverterTypeRegion.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRegion_lower(_ value: Region) -> RustBuffer {
+    return FfiConverterTypeRegion.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * Registration status for a World ID being created through the gateway.
  */
 
@@ -5916,6 +6322,25 @@ public enum WalletKitError: Swift.Error, Equatable, Hashable, Foundation.Localiz
      */
     case NullifierReplay
     /**
+     * Cached Groth16 material could not be parsed or verified.
+     */
+    case Groth16MaterialCacheInvalid(
+        /**
+         * Input path(s) used for loading.
+         */path: String, 
+        /**
+         * Underlying error message.
+         */error: String
+    )
+    /**
+     * Failed to load embedded Groth16 material.
+     */
+    case Groth16MaterialEmbeddedLoad(
+        /**
+         * Underlying error message.
+         */error: String
+    )
+    /**
      * An unexpected error occurred
      */
     case Generic(
@@ -5982,7 +6407,14 @@ public struct FfiConverterTypeWalletKitError: FfiConverterRustBuffer {
             )
         case 14: return .UnfulfillableRequest
         case 15: return .NullifierReplay
-        case 16: return .Generic(
+        case 16: return .Groth16MaterialCacheInvalid(
+            path: try FfiConverterString.read(from: &buf), 
+            error: try FfiConverterString.read(from: &buf)
+            )
+        case 17: return .Groth16MaterialEmbeddedLoad(
+            error: try FfiConverterString.read(from: &buf)
+            )
+        case 18: return .Generic(
             error: try FfiConverterString.read(from: &buf)
             )
 
@@ -6066,8 +6498,19 @@ public struct FfiConverterTypeWalletKitError: FfiConverterRustBuffer {
             writeInt(&buf, Int32(15))
         
         
-        case let .Generic(error):
+        case let .Groth16MaterialCacheInvalid(path,error):
             writeInt(&buf, Int32(16))
+            FfiConverterString.write(path, into: &buf)
+            FfiConverterString.write(error, into: &buf)
+            
+        
+        case let .Groth16MaterialEmbeddedLoad(error):
+            writeInt(&buf, Int32(17))
+            FfiConverterString.write(error, into: &buf)
+            
+        
+        case let .Generic(error):
+            writeInt(&buf, Int32(18))
             FfiConverterString.write(error, into: &buf)
             
         }
@@ -6188,6 +6631,30 @@ fileprivate struct FfiConverterOptionData: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeRegion: FfiConverterRustBuffer {
+    typealias SwiftType = Region?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeRegion.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeRegion.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceUInt64: FfiConverterRustBuffer {
     typealias SwiftType = [UInt64]
 
@@ -6232,6 +6699,32 @@ fileprivate struct FfiConverterSequenceTypeCredentialRecord: FfiConverterRustBuf
             seq.append(try FfiConverterTypeCredentialRecord.read(from: &buf))
         }
         return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterDictionaryStringString: FfiConverterRustBuffer {
+    public static func write(_ value: [String: String], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for (key, value) in value {
+            FfiConverterString.write(key, into: &buf)
+            FfiConverterString.write(value, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String: String] {
+        let len: Int32 = try readInt(&buf)
+        var dict = [String: String]()
+        dict.reserveCapacity(Int(len))
+        for _ in 0..<len {
+            let key = try FfiConverterString.read(from: &buf)
+            let value = try FfiConverterString.read(from: &buf)
+            dict[key] = value
+        }
+        return dict
     }
 }
 private let UNIFFI_RUST_FUTURE_POLL_READY: Int8 = 0
@@ -6306,6 +6799,21 @@ public func setLogger(logger: Logger)  {try! rustCall() {
     )
 }
 }
+/**
+ * Writes embedded Groth16 material to the cache paths managed by [`StoragePaths`].
+ *
+ * This operation is idempotent and atomically rewrites all managed files.
+ *
+ * # Errors
+ *
+ * Returns an error if embedded material cannot be loaded or cache files cannot be written.
+ */
+public func cacheEmbeddedGroth16Material(paths: StoragePaths)throws   {try rustCallWithError(FfiConverterTypeStorageError_lift) {
+    uniffi_walletkit_core_fn_func_cache_embedded_groth16_material(
+        FfiConverterTypeStoragePaths_lower(paths),$0
+    )
+}
+}
 
 private enum InitializationResult {
     case ok
@@ -6323,6 +6831,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.contractVersionMismatch
     }
     if (uniffi_walletkit_core_checksum_func_set_logger() != 44772) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_func_cache_embedded_groth16_material() != 10840) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_authenticator_compute_credential_sub() != 11498) {
@@ -6367,6 +6878,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_fieldelement_to_hex_string() != 50430) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_method_tfhnfcissuer_refresh_nfc_credential() != 55554) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_method_logger_log() != 33653) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -6394,10 +6908,25 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_proofoutput_to_json() != 57591) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_method_proofrequest_id() != 64235) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_method_proofrequest_to_json() != 43149) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_method_proofrequest_version() != 53769) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_proofresponse_error() != 44642) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_proofresponse_id() != 28770) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_method_proofresponse_to_json() != 14808) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_proofresponse_version() != 46855) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_credentialstore_init() != 6887) {
@@ -6421,7 +6950,22 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_storagepaths_cache_db_path_string() != 19078) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_method_storagepaths_groth16_dir_path_string() != 57824) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_method_storagepaths_lock_path_string() != 45603) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_storagepaths_nullifier_graph_path_string() != 12055) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_storagepaths_nullifier_zkey_path_string() != 59479) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_storagepaths_query_graph_path_string() != 18563) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_storagepaths_query_zkey_path_string() != 42200) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_storagepaths_root_path_string() != 17906) {
@@ -6478,16 +7022,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_worldid_is_equal_to() != 28490) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_authenticator_init() != 64371) {
+    if (uniffi_walletkit_core_checksum_constructor_authenticator_init() != 19156) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_authenticator_init_with_defaults() != 42244) {
+    if (uniffi_walletkit_core_checksum_constructor_authenticator_init_with_defaults() != 8041) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_initializingauthenticator_register() != 35471) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_initializingauthenticator_register_with_defaults() != 54831) {
+    if (uniffi_walletkit_core_checksum_constructor_initializingauthenticator_register_with_defaults() != 45761) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_addressbook_new() != 34140) {
@@ -6503,6 +7047,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_fieldelement_try_from_hex_string() != 7854) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_constructor_tfhnfcissuer_new() != 15498) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_merkletreeproof_from_identity_commitment() != 28005) {

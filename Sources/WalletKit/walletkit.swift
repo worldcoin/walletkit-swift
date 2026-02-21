@@ -2175,24 +2175,16 @@ public func FfiConverterTypeDeviceKeystore_lower(_ value: DeviceKeystore) -> UIn
 public protocol FieldElementProtocol: AnyObject, Sendable {
     
     /**
-     * Serializes the field element to bytes.
+     * Serializes the field element to bytes (big-endian).
      *
      * Returns a byte vector representing the field element.
-     *
-     * # Errors
-     *
-     * Returns an error if serialization fails.
      */
-    func toBytes() throws  -> Data
+    func toBytes()  -> Data
     
     /**
-     * Converts the field element to a hex string.
-     *
-     * # Errors
-     *
-     * Returns an error if serialization fails.
+     * Converts the field element to a hex-encoded, padded string.
      */
-    func toHexString() throws  -> String
+    func toHexString()  -> String
     
 }
 /**
@@ -2256,7 +2248,7 @@ open class FieldElement: FieldElementProtocol, @unchecked Sendable {
 
     
     /**
-     * Creates a `FieldElement` from raw bytes.
+     * Creates a `FieldElement` from raw bytes (big-endian).
      *
      * # Errors
      *
@@ -2303,16 +2295,12 @@ public static func tryFromHexString(hexString: String)throws  -> FieldElement  {
 
     
     /**
-     * Serializes the field element to bytes.
+     * Serializes the field element to bytes (big-endian).
      *
      * Returns a byte vector representing the field element.
-     *
-     * # Errors
-     *
-     * Returns an error if serialization fails.
      */
-open func toBytes()throws  -> Data  {
-    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+open func toBytes() -> Data  {
+    return try!  FfiConverterData.lift(try! rustCall() {
     uniffi_walletkit_core_fn_method_fieldelement_to_bytes(
             self.uniffiCloneHandle(),$0
     )
@@ -2320,14 +2308,10 @@ open func toBytes()throws  -> Data  {
 }
     
     /**
-     * Converts the field element to a hex string.
-     *
-     * # Errors
-     *
-     * Returns an error if serialization fails.
+     * Converts the field element to a hex-encoded, padded string.
      */
-open func toHexString()throws  -> String  {
-    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+open func toHexString() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_walletkit_core_fn_method_fieldelement_to_hex_string(
             self.uniffiCloneHandle(),$0
     )
@@ -6888,10 +6872,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_credential_sub() != 28505) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_fieldelement_to_bytes() != 44718) {
+    if (uniffi_walletkit_core_checksum_method_fieldelement_to_bytes() != 2459) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_fieldelement_to_hex_string() != 50430) {
+    if (uniffi_walletkit_core_checksum_method_fieldelement_to_hex_string() != 48989) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_tfhnfcissuer_refresh_nfc_credential() != 55554) {
@@ -7056,7 +7040,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_constructor_credential_from_bytes() != 47479) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_fieldelement_from_bytes() != 26239) {
+    if (uniffi_walletkit_core_checksum_constructor_fieldelement_from_bytes() != 17879) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_fieldelement_from_u64() != 17661) {

@@ -1,7 +1,7 @@
 // swift-tools-version: 5.7
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
-// Release version: 0.6.1
+// Release version: 0.6.2
 
 import PackageDescription
 
@@ -23,8 +23,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "walletkit_coreFFI",
-            url: "https://api.github.com/repos/worldcoin/walletkit-swift/releases/assets/359325342.zip",
-            checksum: "89cae1085c23bb2e6cd2a28edebf4db14eb6909f118c9346be43f7ce22873d11"
+            url: "https://api.github.com/repos/worldcoin/walletkit-swift/releases/assets/359494432.zip",
+            checksum: "ca563cdbda6a138a5350d9c8621e5b000be6c97f7b22b8f8ad80b8517ccd46c2"
         )
     ]
 )

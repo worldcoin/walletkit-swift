@@ -2566,104 +2566,107 @@ public func FfiConverterTypeInitializingAuthenticator_lower(_ value: Initializin
 
 
 /**
- * Trait representing a logger that can log messages at various levels.
+ * Trait representing the minimal foreign logging bridge used by `WalletKit`.
  *
- * This trait should be implemented by any logger that wants to receive log messages.
- * It is exported via `UniFFI` for use in foreign languages.
+ * `WalletKit` emits tracing events and forwards formatted messages with an
+ * explicit severity `level`.
  *
- * # Examples
- *
- * Implementing the `Logger` trait:
+ * # Rust example
  *
  * ```rust
- * use walletkit_core::logger::{Logger, LogLevel};
+ * use std::sync::Arc;
+ * use walletkit_core::logger::{init_logging, LogLevel, Logger};
  *
- * struct MyLogger;
+ * struct AppLogger;
  *
- * impl Logger for MyLogger {
+ * impl Logger for AppLogger {
  * fn log(&self, level: LogLevel, message: String) {
- * println!("[{:?}] {}", level, message);
+ * println!("[{level:?}] {message}");
  * }
  * }
+ *
+ * init_logging(Arc::new(AppLogger), Some(LogLevel::Debug));
  * ```
  *
- * ## Swift
+ * # Swift example
  *
  * ```swift
- * class WalletKitLoggerBridge: WalletKit.Logger {
+ * final class WalletKitLoggerBridge: WalletKit.Logger {
  * static let shared = WalletKitLoggerBridge()
  *
  * func log(level: WalletKit.LogLevel, message: String) {
- * Log.log(level.toCoreLevel(), message)
+ * switch level {
+ * case .trace, .debug:
+ * print("[DEBUG] \(message)")
+ * case .info:
+ * print("[INFO] \(message)")
+ * case .warn:
+ * print("[WARN] \(message)")
+ * case .error:
+ * fputs("[ERROR] \(message)\n", stderr)
+ * @unknown default:
+ * fputs("[UNKNOWN] \(message)\n", stderr)
+ * }
  * }
  * }
  *
- * public func setupWalletKitLogger() {
- * WalletKit.setLogger(logger: WalletKitLoggerBridge.shared)
- * }
- * ```
- *
- * ### In app delegate
- *
- * ```swift
- * setupWalletKitLogger() // Call this only once!!!
+ * WalletKit.initLogging(logger: WalletKitLoggerBridge.shared, level: .debug)
  * ```
  */
 public protocol Logger: AnyObject, Sendable {
     
     /**
-     * Logs a message at the specified log level.
-     *
-     * # Arguments
-     *
-     * * `level` - The severity level of the log message.
-     * * `message` - The log message to be recorded.
+     * Receives a log `message` with its corresponding `level`.
      */
     func log(level: LogLevel, message: String) 
     
 }
 /**
- * Trait representing a logger that can log messages at various levels.
+ * Trait representing the minimal foreign logging bridge used by `WalletKit`.
  *
- * This trait should be implemented by any logger that wants to receive log messages.
- * It is exported via `UniFFI` for use in foreign languages.
+ * `WalletKit` emits tracing events and forwards formatted messages with an
+ * explicit severity `level`.
  *
- * # Examples
- *
- * Implementing the `Logger` trait:
+ * # Rust example
  *
  * ```rust
- * use walletkit_core::logger::{Logger, LogLevel};
+ * use std::sync::Arc;
+ * use walletkit_core::logger::{init_logging, LogLevel, Logger};
  *
- * struct MyLogger;
+ * struct AppLogger;
  *
- * impl Logger for MyLogger {
+ * impl Logger for AppLogger {
  * fn log(&self, level: LogLevel, message: String) {
- * println!("[{:?}] {}", level, message);
+ * println!("[{level:?}] {message}");
  * }
  * }
+ *
+ * init_logging(Arc::new(AppLogger), Some(LogLevel::Debug));
  * ```
  *
- * ## Swift
+ * # Swift example
  *
  * ```swift
- * class WalletKitLoggerBridge: WalletKit.Logger {
+ * final class WalletKitLoggerBridge: WalletKit.Logger {
  * static let shared = WalletKitLoggerBridge()
  *
  * func log(level: WalletKit.LogLevel, message: String) {
- * Log.log(level.toCoreLevel(), message)
+ * switch level {
+ * case .trace, .debug:
+ * print("[DEBUG] \(message)")
+ * case .info:
+ * print("[INFO] \(message)")
+ * case .warn:
+ * print("[WARN] \(message)")
+ * case .error:
+ * fputs("[ERROR] \(message)\n", stderr)
+ * @unknown default:
+ * fputs("[UNKNOWN] \(message)\n", stderr)
+ * }
  * }
  * }
  *
- * public func setupWalletKitLogger() {
- * WalletKit.setLogger(logger: WalletKitLoggerBridge.shared)
- * }
- * ```
- *
- * ### In app delegate
- *
- * ```swift
- * setupWalletKitLogger() // Call this only once!!!
+ * WalletKit.initLogging(logger: WalletKitLoggerBridge.shared, level: .debug)
  * ```
  */
 open class LoggerImpl: Logger, @unchecked Sendable {
@@ -2720,12 +2723,7 @@ open class LoggerImpl: Logger, @unchecked Sendable {
 
     
     /**
-     * Logs a message at the specified log level.
-     *
-     * # Arguments
-     *
-     * * `level` - The severity level of the log message.
-     * * `message` - The log message to be recorded.
+     * Receives a log `message` with its corresponding `level`.
      */
 open func log(level: LogLevel, message: String)  {try! rustCall() {
     uniffi_walletkit_core_fn_method_logger_log(
@@ -5546,31 +5544,29 @@ public func FfiConverterTypeEnvironment_lower(_ value: Environment) -> RustBuffe
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
- * Enumeration of possible log levels.
- *
- * This enum represents the severity levels that can be used when logging messages.
+ * Enumeration of possible log levels for foreign logger callbacks.
  */
 
 public enum LogLevel: Equatable, Hashable {
     
     /**
-     * Designates very low priority, often extremely detailed messages.
+     * Very detailed diagnostic messages.
      */
     case trace
     /**
-     * Designates lower priority debugging information.
+     * Debug-level messages.
      */
     case debug
     /**
-     * Designates informational messages that highlight the progress of the application.
+     * Informational messages.
      */
     case info
     /**
-     * Designates potentially harmful situations.
+     * Warning messages.
      */
     case warn
     /**
-     * Designates error events that might still allow the application to continue running.
+     * Error messages.
      */
     case error
 
@@ -6333,6 +6329,20 @@ public enum WalletKitError: Swift.Error, Equatable, Hashable, Foundation.Localiz
          */error: String
     )
     /**
+     * Not enough OPRF nodes responded during nullifier generation
+     *
+     * # TODO
+     * This is a temporary variant to capture all errors from OPRF nodes until
+     * typed errors are rolled out from OPRF nodes.
+     */
+    case NullifierGenerationFailed(
+        /**
+         * The error message from the OPRF client.
+         *
+         * This is likely to be a list of errors from each OPRF node.
+         */error: String
+    )
+    /**
      * An unexpected error occurred
      */
     case Generic(
@@ -6409,7 +6419,10 @@ public struct FfiConverterTypeWalletKitError: FfiConverterRustBuffer {
         case 18: return .Groth16MaterialEmbeddedLoad(
             error: try FfiConverterString.read(from: &buf)
             )
-        case 19: return .Generic(
+        case 19: return .NullifierGenerationFailed(
+            error: try FfiConverterString.read(from: &buf)
+            )
+        case 20: return .Generic(
             error: try FfiConverterString.read(from: &buf)
             )
 
@@ -6509,8 +6522,13 @@ public struct FfiConverterTypeWalletKitError: FfiConverterRustBuffer {
             FfiConverterString.write(error, into: &buf)
             
         
-        case let .Generic(error):
+        case let .NullifierGenerationFailed(error):
             writeInt(&buf, Int32(19))
+            FfiConverterString.write(error, into: &buf)
+            
+        
+        case let .Generic(error):
+            writeInt(&buf, Int32(20))
             FfiConverterString.write(error, into: &buf)
             
         }
@@ -6623,6 +6641,30 @@ fileprivate struct FfiConverterOptionData: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterData.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeLogLevel: FfiConverterRustBuffer {
+    typealias SwiftType = LogLevel?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeLogLevel.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeLogLevel.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -6776,26 +6818,35 @@ fileprivate func uniffiFutureContinuationCallback(handle: UInt64, pollResult: In
     }
 }
 /**
- * Sets the global logger.
+ * Emits a message at the given level through `WalletKit`'s tracing pipeline.
  *
- * This function allows you to provide your own implementation of the `Logger` trait.
- * It initializes the logging system and should be called before any logging occurs.
+ * Useful for verifying that the logging bridge is wired up correctly.
+ */
+public func emitLog(level: LogLevel, message: String)  {try! rustCall() {
+    uniffi_walletkit_core_fn_func_emit_log(
+        FfiConverterTypeLogLevel_lower(level),
+        FfiConverterString.lower(message),$0
+    )
+}
+}
+/**
+ * Initializes `WalletKit` tracing and registers a foreign logger sink.
  *
- * # Arguments
+ * `level` controls the minimum severity for `WalletKit` and its direct
+ * dependencies (taceo, world-id, semaphore). All other crates remain at
+ * `Info` regardless of this setting. Pass `None` to default to `Info`.
+ * The `RUST_LOG` environment variable, when set, always takes precedence.
  *
- * * `logger` - An `Arc` containing your logger implementation.
+ * This function is idempotent. The first call wins; subsequent calls are no-ops.
  *
  * # Panics
  *
- * Panics if the logger has already been set.
- *
- * # Note
- *
- * If the logger has already been set, this function will print a message and do nothing.
+ * Panics if the dedicated logger delivery thread cannot be spawned.
  */
-public func setLogger(logger: Logger)  {try! rustCall() {
-    uniffi_walletkit_core_fn_func_set_logger(
-        FfiConverterTypeLogger_lower(logger),$0
+public func initLogging(logger: Logger, level: LogLevel?)  {try! rustCall() {
+    uniffi_walletkit_core_fn_func_init_logging(
+        FfiConverterTypeLogger_lower(logger),
+        FfiConverterOptionTypeLogLevel.lower(level),$0
     )
 }
 }
@@ -6830,7 +6881,10 @@ private let initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
-    if (uniffi_walletkit_core_checksum_func_set_logger() != 44772) {
+    if (uniffi_walletkit_core_checksum_func_emit_log() != 60718) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_func_init_logging() != 62449) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_func_cache_embedded_groth16_material() != 10840) {
@@ -6881,7 +6935,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_tfhnfcissuer_refresh_nfc_credential() != 55554) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_logger_log() != 33653) {
+    if (uniffi_walletkit_core_checksum_method_logger_log() != 55679) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_proofcontext_get_credential_type() != 23919) {

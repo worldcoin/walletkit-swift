@@ -3,6 +3,7 @@
 
 // swiftlint:disable all
 import Foundation
+import BigInt
 
 // Depending on the consumer's build setup, the low-level FFI code
 // might be in a separate module, or it might be compiled inline into
@@ -489,6 +490,30 @@ fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterBool : FfiConverter {
+    typealias FfiType = Int8
+    typealias SwiftType = Bool
+
+    public static func lift(_ value: Int8) throws -> Bool {
+        return value != 0
+    }
+
+    public static func lower(_ value: Bool) -> Int8 {
+        return value ? 1 : 0
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Bool {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: Bool, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterString: FfiConverter {
     typealias SwiftType = String
     typealias FfiType = RustBuffer
@@ -544,6 +569,166 @@ fileprivate struct FfiConverterData: FfiConverterRustBuffer {
         writeBytes(&buf, value)
     }
 }
+
+
+
+
+/**
+ * Allows interacting with the `WorldIDAddressBook` contract.
+ *
+ * The address book allows users to verify their Wallet Address as Orb verified for a period of time.
+ *
+ * Usage of `AddressBook` requires the `legacy-nullifiers` feature flag.
+ *
+ * The contract of the address book can be found at: `0x57b930d551e677cc36e2fa036ae2fe8fdae0330d`
+ */
+public protocol AddressBookProtocol: AnyObject, Sendable {
+    
+    /**
+     * Generates a proof context for the `WorldIDAddressBook` contract to use in a World ID Proof.
+     *
+     * # Errors
+     * - Returns an error if the address is not a valid EVM address.
+     * - Returns an error if the timestamp is not a valid numeric timestamp.
+     */
+    func generateProofContext(addressToVerify: String, timestamp: UInt64) throws  -> ProofContext
+    
+}
+/**
+ * Allows interacting with the `WorldIDAddressBook` contract.
+ *
+ * The address book allows users to verify their Wallet Address as Orb verified for a period of time.
+ *
+ * Usage of `AddressBook` requires the `legacy-nullifiers` feature flag.
+ *
+ * The contract of the address book can be found at: `0x57b930d551e677cc36e2fa036ae2fe8fdae0330d`
+ */
+open class AddressBook: AddressBookProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_addressbook(self.handle, $0) }
+    }
+    /**
+     * Initializes a new `AddressBook` instance.
+     */
+public convenience init() {
+    let handle =
+        try! rustCall() {
+    uniffi_walletkit_core_fn_constructor_addressbook_new($0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_addressbook(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Generates a proof context for the `WorldIDAddressBook` contract to use in a World ID Proof.
+     *
+     * # Errors
+     * - Returns an error if the address is not a valid EVM address.
+     * - Returns an error if the timestamp is not a valid numeric timestamp.
+     */
+open func generateProofContext(addressToVerify: String, timestamp: UInt64)throws  -> ProofContext  {
+    return try  FfiConverterTypeProofContext_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+    uniffi_walletkit_core_fn_method_addressbook_generate_proof_context(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(addressToVerify),
+        FfiConverterUInt64.lower(timestamp),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeAddressBook: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = AddressBook
+
+    public static func lift(_ handle: UInt64) throws -> AddressBook {
+        return AddressBook(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: AddressBook) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> AddressBook {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: AddressBook, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAddressBook_lift(_ handle: UInt64) throws -> AddressBook {
+    return try FfiConverterTypeAddressBook.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeAddressBook_lower(_ value: AddressBook) -> UInt64 {
+    return FfiConverterTypeAddressBook.lower(value)
+}
+
+
 
 
 
@@ -901,7 +1086,7 @@ public protocol AuthenticatorProtocol: AnyObject, Sendable {
      * # Errors
      * Will error if the provided RPC URL is not valid or if there are RPC call failures.
      */
-    func getPackedAccountDataRemote() async throws  -> U256Wrapper
+    func getPackedAccountDataRemote() async throws  -> Uint256
     
     /**
      * Returns the leaf index for the holder's World ID.
@@ -924,7 +1109,7 @@ public protocol AuthenticatorProtocol: AnyObject, Sendable {
      * The packed account data is a 256 bit integer which includes the user's leaf index, their recovery counter,
      * and their pubkey id/commitment.
      */
-    func packedAccountData()  -> U256Wrapper
+    func packedAccountData()  -> Uint256
     
     /**
      * Initializes storage using the authenticator's leaf index.
@@ -1108,7 +1293,7 @@ open func generateProof(proofRequest: ProofRequest, now: UInt64?)async throws  -
      * # Errors
      * Will error if the provided RPC URL is not valid or if there are RPC call failures.
      */
-open func getPackedAccountDataRemote()async throws  -> U256Wrapper  {
+open func getPackedAccountDataRemote()async throws  -> Uint256  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
@@ -1117,10 +1302,10 @@ open func getPackedAccountDataRemote()async throws  -> U256Wrapper  {
                     
                 )
             },
-            pollFunc: ffi_walletkit_core_rust_future_poll_u64,
-            completeFunc: ffi_walletkit_core_rust_future_complete_u64,
-            freeFunc: ffi_walletkit_core_rust_future_free_u64,
-            liftFunc: FfiConverterTypeU256Wrapper_lift,
+            pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeUint256_lift,
             errorHandler: FfiConverterTypeWalletKitError_lift
         )
 }
@@ -1158,8 +1343,8 @@ open func onchainAddress() -> String  {
      * The packed account data is a 256 bit integer which includes the user's leaf index, their recovery counter,
      * and their pubkey id/commitment.
      */
-open func packedAccountData() -> U256Wrapper  {
-    return try!  FfiConverterTypeU256Wrapper_lift(try! rustCall() {
+open func packedAccountData() -> Uint256  {
+    return try!  FfiConverterTypeUint256_lift(try! rustCall() {
     uniffi_walletkit_core_fn_method_authenticator_packed_account_data(
             self.uniffiCloneHandle(),$0
     )
@@ -2810,6 +2995,664 @@ public func FfiConverterTypeLogger_lower(_ value: Logger) -> UInt64 {
 
 
 
+public protocol MerkleTreeProofProtocol: AnyObject, Sendable {
+    
+}
+open class MerkleTreeProof: MerkleTreeProofProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_merkletreeproof(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_merkletreeproof(handle, $0) }
+    }
+
+    
+    /**
+     * Retrieves a Merkle inclusion proof from the sign up sequencer for a given identity commitment.
+     * Each credential/environment pair uses a different sign up sequencer.
+     *
+     * # Errors
+     * Will throw an error if the request fails or parsing the response fails.
+     */
+public static func fromIdentityCommitment(identityCommitment: Uint256, sequencerHost: String, requireMinedProof: Bool)async throws  -> MerkleTreeProof  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_constructor_merkletreeproof_from_identity_commitment(FfiConverterTypeUint256_lower(identityCommitment),FfiConverterString.lower(sequencerHost),FfiConverterBool.lower(requireMinedProof)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_u64,
+            completeFunc: ffi_walletkit_core_rust_future_complete_u64,
+            freeFunc: ffi_walletkit_core_rust_future_free_u64,
+            liftFunc: FfiConverterTypeMerkleTreeProof_lift,
+            errorHandler: FfiConverterTypeWalletKitError_lift
+        )
+}
+    
+public static func fromJsonProof(jsonProof: String, merkleRoot: String)throws  -> MerkleTreeProof  {
+    return try  FfiConverterTypeMerkleTreeProof_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+    uniffi_walletkit_core_fn_constructor_merkletreeproof_from_json_proof(
+        FfiConverterString.lower(jsonProof),
+        FfiConverterString.lower(merkleRoot),$0
+    )
+})
+}
+    
+
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMerkleTreeProof: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = MerkleTreeProof
+
+    public static func lift(_ handle: UInt64) throws -> MerkleTreeProof {
+        return MerkleTreeProof(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: MerkleTreeProof) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MerkleTreeProof {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: MerkleTreeProof, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMerkleTreeProof_lift(_ handle: UInt64) throws -> MerkleTreeProof {
+    return try FfiConverterTypeMerkleTreeProof.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMerkleTreeProof_lower(_ value: MerkleTreeProof) -> UInt64 {
+    return FfiConverterTypeMerkleTreeProof.lower(value)
+}
+
+
+
+
+
+
+/**
+ * A `ProofContext` contains the basic information on the verifier and the specific action a user will be proving.
+ *
+ * It is required to generate a `Proof` and will generally be initialized from an `app_id` and `action`.
+ *
+ * Note on naming: `ProofContext` is used to make it clear in FFIs which may not respect the module structure.
+ */
+public protocol ProofContextProtocol: AnyObject, Sendable {
+    
+    /**
+     * Get the credential type for this context.
+     */
+    func getCredentialType()  -> CredentialType
+    
+    /**
+     * Get the raw external nullifier for this context.
+     */
+    func getExternalNullifier()  -> Uint256
+    
+    /**
+     * Get the signal hash for this context.
+     */
+    func getSignalHash()  -> Uint256
+    
+}
+/**
+ * A `ProofContext` contains the basic information on the verifier and the specific action a user will be proving.
+ *
+ * It is required to generate a `Proof` and will generally be initialized from an `app_id` and `action`.
+ *
+ * Note on naming: `ProofContext` is used to make it clear in FFIs which may not respect the module structure.
+ */
+open class ProofContext: ProofContextProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_proofcontext(self.handle, $0) }
+    }
+    /**
+     * Initializes a `ProofContext`.
+     *
+     * Will compute the relevant external nullifier from the provided `app_id` and `action` as defined by the
+     * World ID Protocol. The external nullifier generation matches the logic in the
+     * [Developer Portal](https://github.com/worldcoin/developer-portal/blob/main/web/lib/hashing.ts).
+     *
+     * # Arguments
+     *
+     * * `app_id` - The ID of the application requesting proofs.  This can be obtained from the [Developer Portal](https://developer.world.org).
+     * * `action` - Optional. Custom incognito action being requested.
+     * * `signal` - Optional. The signal is included in the ZKP and is committed to in the proof. When verifying the proof, the
+     * same signal must be provided to ensure the proof is valid. The signal can be used to prevent replay attacks, MITM or other cases.
+     * More details available in the [docs](https://docs.world.org/world-id/further-reading/zero-knowledge-proofs).
+     * * `credential_type` - The type of credential being requested.
+
+     */
+public convenience init(appId: String, action: String?, signal: String?, credentialType: CredentialType) {
+    let handle =
+        try! rustCall() {
+    uniffi_walletkit_core_fn_constructor_proofcontext_new(
+        FfiConverterString.lower(appId),
+        FfiConverterOptionString.lower(action),
+        FfiConverterOptionString.lower(signal),
+        FfiConverterTypeCredentialType_lower(credentialType),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_proofcontext(handle, $0) }
+    }
+
+    
+    /**
+     * LEGACY AND ADVANCED USE ONLY.
+     *
+     * Initializes a `ProofContext` from an arbitrary pre-image for an external nullifier.
+     *
+     * This is used for legacy nullifiers which were constructed from arbitrary bytes which don't follow
+     * the `app_id` and `action` standard.
+     *
+     * # Usage (Non-exhaustive)
+     *
+     * - This is used for the World ID Address Book.
+     *
+     * # Arguments
+     *
+     * * `external_nullifier` - An arbitrary array of bytes that will be hashed to produce the external nullifier.
+     * * `credential_type` - The type of credential being requested.
+     * * `signal` - Optional. The signal is included in the ZKP and is committed to in the proof.
+     */
+public static func legacyNewFromPreImageExternalNullifier(externalNullifier: Data, credentialType: CredentialType, signal: Data?, requireMinedProof: Bool) -> ProofContext  {
+    return try!  FfiConverterTypeProofContext_lift(try! rustCall() {
+    uniffi_walletkit_core_fn_constructor_proofcontext_legacy_new_from_pre_image_external_nullifier(
+        FfiConverterData.lower(externalNullifier),
+        FfiConverterTypeCredentialType_lower(credentialType),
+        FfiConverterOptionData.lower(signal),
+        FfiConverterBool.lower(requireMinedProof),$0
+    )
+})
+}
+    
+    /**
+     * LEGACY AND ADVANCED USE ONLY.
+     *
+     * Initializes a `ProofContext` from a raw external nullifier.
+     *
+     * This is used for legacy nullifiers which were constructed from raw field elements.
+     *
+     * # Usage (Non-exhaustive)
+     *
+     * - This is used for Recurring Grant Claims (Worldcoin Airdrop).
+     * - This is used to verify a World App account.
+     *
+     * # Arguments
+     *
+     * * `external_nullifier` - The raw external nullifier. Must already be a number in the field. No additional hashing is performed.
+     * * `credential_type` - The type of credential being requested.
+     * * `signal` - Optional. The signal is included in the ZKP and is committed to in the proof.
+     *
+     * # Errors
+     *
+     * - Returns an error if the external nullifier is not a valid number in the field.
+     */
+public static func legacyNewFromRawExternalNullifier(externalNullifier: Uint256, credentialType: CredentialType, signal: Data?, requireMinedProof: Bool)throws  -> ProofContext  {
+    return try  FfiConverterTypeProofContext_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+    uniffi_walletkit_core_fn_constructor_proofcontext_legacy_new_from_raw_external_nullifier(
+        FfiConverterTypeUint256_lower(externalNullifier),
+        FfiConverterTypeCredentialType_lower(credentialType),
+        FfiConverterOptionData.lower(signal),
+        FfiConverterBool.lower(requireMinedProof),$0
+    )
+})
+}
+    
+    /**
+     * Initializes a `Proof::ProofContext` where the `action` is provided as raw bytes. This is useful for advanced cases
+     * where the `action` is an already ABI encoded value for on-chain usage.
+     * See _walletkit-core/tests/solidity.rs_ for an example.
+     *
+     * Will compute the relevant external nullifier from the provided `app_id` and `action`.
+     *
+     * # Arguments
+     *
+     * See `ProofContext::new` for reference. The `action` and `signal` need to be provided as raw bytes.
+
+     */
+public static func newFromBytes(appId: String, action: Data?, signal: Data?, credentialType: CredentialType) -> ProofContext  {
+    return try!  FfiConverterTypeProofContext_lift(try! rustCall() {
+    uniffi_walletkit_core_fn_constructor_proofcontext_new_from_bytes(
+        FfiConverterString.lower(appId),
+        FfiConverterOptionData.lower(action),
+        FfiConverterOptionData.lower(signal),
+        FfiConverterTypeCredentialType_lower(credentialType),$0
+    )
+})
+}
+    
+    /**
+     * Initializes a `ProofContext` from an already hashed signal.
+     *
+     * Please note it is imperative to hash into the Semaphore field. Not all U256 are part of the field.
+     * Use the `hash_to_field` function to hash into the field.
+     *
+     * # Usage
+     * - This may be used when the hash of the signal is computed externally.
+     * - For example, this is used for support of legacy `MiniKit` v1 commands in World App where `minikit-js` hashed the signal.
+     *
+     * # Arguments
+     *
+     * * `app_id` - The ID of the application requesting proofs.  This can be obtained from the [Developer Portal](https://developer.world.org).
+     * * `action` - Optional. Custom incognito action being requested as bytes.
+     * * `credential_type` - The type of credential being requested.
+     * * `signal` - The already hashed signal as a field element.
+     *
+     * # Errors
+     *
+     * - Returns an error if the signal is not a valid number in the field.
+     */
+public static func newFromSignalHash(appId: String, action: Data?, credentialType: CredentialType, signalHash: Uint256)throws  -> ProofContext  {
+    return try  FfiConverterTypeProofContext_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+    uniffi_walletkit_core_fn_constructor_proofcontext_new_from_signal_hash(
+        FfiConverterString.lower(appId),
+        FfiConverterOptionData.lower(action),
+        FfiConverterTypeCredentialType_lower(credentialType),
+        FfiConverterTypeUint256_lower(signalHash),$0
+    )
+})
+}
+    
+
+    
+    /**
+     * Get the credential type for this context.
+     */
+open func getCredentialType() -> CredentialType  {
+    return try!  FfiConverterTypeCredentialType_lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_proofcontext_get_credential_type(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Get the raw external nullifier for this context.
+     */
+open func getExternalNullifier() -> Uint256  {
+    return try!  FfiConverterTypeUint256_lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_proofcontext_get_external_nullifier(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Get the signal hash for this context.
+     */
+open func getSignalHash() -> Uint256  {
+    return try!  FfiConverterTypeUint256_lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_proofcontext_get_signal_hash(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeProofContext: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = ProofContext
+
+    public static func lift(_ handle: UInt64) throws -> ProofContext {
+        return ProofContext(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: ProofContext) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProofContext {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: ProofContext, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProofContext_lift(_ handle: UInt64) throws -> ProofContext {
+    return try FfiConverterTypeProofContext.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProofContext_lower(_ value: ProofContext) -> UInt64 {
+    return FfiConverterTypeProofContext.lower(value)
+}
+
+
+
+
+
+
+/**
+ * Represents the complete output of a World ID Proof (i.e. a credential persentation). This output
+ * can be serialized to JSON and can be verified easily with the Developer Portal or Sign up Sequencer.
+ *
+ * For on-chain verification, the `proof` (which is packed) should generally be deserialized into `uint256[8]`.
+ *
+ * More information on: [On-Chain Verification](https://docs.world.org/world-id/id/on-chain)
+ */
+public protocol ProofOutputProtocol: AnyObject, Sendable {
+    
+    /**
+     * Exposes the credential type to foreign code. Struct fields are not directly exposed to foreign code.
+     */
+    func getCredentialType()  -> CredentialType
+    
+    /**
+     * Exposes the merkle root to foreign code. Struct fields are not directly exposed to foreign code.
+     */
+    func getMerkleRoot()  -> Uint256
+    
+    /**
+     * Exposes the nullifier hash to foreign code. Struct fields are not directly exposed to foreign code.
+     */
+    func getNullifierHash()  -> Uint256
+    
+    /**
+     * Exposes the proof as a string to foreign code. Struct fields are not directly exposed to foreign code.
+     */
+    func getProofAsString()  -> String
+    
+    /**
+     * Converts the entire proof output to a JSON string with standard attribute names.
+     *
+     * # Errors
+     * Will error if serialization fails.
+     */
+    func toJson() throws  -> String
+    
+}
+/**
+ * Represents the complete output of a World ID Proof (i.e. a credential persentation). This output
+ * can be serialized to JSON and can be verified easily with the Developer Portal or Sign up Sequencer.
+ *
+ * For on-chain verification, the `proof` (which is packed) should generally be deserialized into `uint256[8]`.
+ *
+ * More information on: [On-Chain Verification](https://docs.world.org/world-id/id/on-chain)
+ */
+open class ProofOutput: ProofOutputProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_proofoutput(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_proofoutput(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Exposes the credential type to foreign code. Struct fields are not directly exposed to foreign code.
+     */
+open func getCredentialType() -> CredentialType  {
+    return try!  FfiConverterTypeCredentialType_lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_proofoutput_get_credential_type(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Exposes the merkle root to foreign code. Struct fields are not directly exposed to foreign code.
+     */
+open func getMerkleRoot() -> Uint256  {
+    return try!  FfiConverterTypeUint256_lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_proofoutput_get_merkle_root(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Exposes the nullifier hash to foreign code. Struct fields are not directly exposed to foreign code.
+     */
+open func getNullifierHash() -> Uint256  {
+    return try!  FfiConverterTypeUint256_lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_proofoutput_get_nullifier_hash(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Exposes the proof as a string to foreign code. Struct fields are not directly exposed to foreign code.
+     */
+open func getProofAsString() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_proofoutput_get_proof_as_string(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Converts the entire proof output to a JSON string with standard attribute names.
+     *
+     * # Errors
+     * Will error if serialization fails.
+     */
+open func toJson()throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+    uniffi_walletkit_core_fn_method_proofoutput_to_json(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeProofOutput: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = ProofOutput
+
+    public static func lift(_ handle: UInt64) throws -> ProofOutput {
+        return ProofOutput(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: ProofOutput) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProofOutput {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: ProofOutput, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProofOutput_lift(_ handle: UInt64) throws -> ProofOutput {
+    return try FfiConverterTypeProofOutput.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProofOutput_lower(_ value: ProofOutput) -> UInt64 {
+    return FfiConverterTypeProofOutput.lower(value)
+}
+
+
+
+
+
+
 /**
  * A request from the RP to the Authenticator. See [`CoreProofRequest`] for more details.
  * This is a wrapper type to expose to foreign language bindings.
@@ -3918,46 +4761,77 @@ public func FfiConverterTypeTfhNfcIssuer_lower(_ value: TfhNfcIssuer) -> UInt64 
 
 
 /**
- * A wrapper around `U256` to represent a field element in the protocol. Wrapper enables FFI interoperability.
+ * A base World ID identity which can be used to generate World ID Proofs for different credentials.
  *
- * Most inputs and outputs from the zero-knowledge proofs are `U256` values.
- * While using `U256` directly is convenient and recommended when working with the proofs, particularly in Rust,
- * it is not a user-friendly type for interactions or communications in other languages / systems.
- *
- * Particularly, when sending proof inputs/outputs as JSON on HTTP requests, the values SHOULD
- * be represented as padded hex strings from Big Endian bytes.
+ * Most essential primitive for World ID.
  */
-public protocol U256WrapperProtocol: AnyObject, Sendable {
+public protocol WorldIdProtocol: AnyObject, Sendable {
     
     /**
-     * Converts the `U256` value into a vector of 4 `u64` values (little-endian). Least significant limb first.
+     * Generates a nullifier hash for a particular context (i.e. app + action) and the identity.
+     * The nullifier hash is a unique pseudo-random number for the particular identity and context.
+     * More information can be found [here](https://docs.world.org/world-id/concepts#vocabulary)
      *
-     * Using a vector as an array cannot be lowered to foreign bindings.
+     * [Protocol Reference](https://docs.semaphore.pse.dev/V2/technical-reference/circuits#nullifier-hash).
      */
-    func intoLimbs()  -> [UInt64]
+    func generateNullifierHash(context: ProofContext)  -> Uint256
     
     /**
-     * Outputs the decimal string representation of the `U256` value.
+     * Generates a World ID Zero-knowledge proof (ZKP) for a specific context (i.e. app + action) and the identity.
+     * This is equivalent to the user presenting their credential to a verifying party.
+     *
+     * **Requires the `semaphore` feature flag.**
+     *
+     * # Errors
+     * Will error if the Merkle Tree inclusion proof cannot be retrieved from the sign up sequencer or if
+     * something fails with the proof generation.
+     *
+     * # Example
+     * ```rust
+     * use walletkit_core::{proof::ProofContext, CredentialType, Environment, world_id::WorldId};
+     * use std::sync::Arc;
+     *
+     * # tokio_test::block_on(async {
+     * let world_id = WorldId::new(b"not_a_real_secret", &Environment::Staging);
+     * let context = ProofContext::new("app_ce4cb73cb75fc3b73b71ffb4de178410", Some("my_action".to_string()), None, CredentialType::Device);
+     * let proof = world_id.generate_proof(&context).await.unwrap();
+     * assert_eq!(proof.nullifier_hash.to_padded_hex_string(), "0x302e253346d2b41a0fd71562ffc6e5ddcbab6d8ea3dd6d68e6a695b5639b1c37")
+     * # })
+     * ```
+     * note: running the doctest example above requires an HTTP connection to the sequencer.
      */
-    func toDecimalString()  -> String
+    func generateProof(context: ProofContext) async throws  -> ProofOutput
     
     /**
-     * Outputs a hex string representation of the `U256` value padded to 32 bytes (plus two bytes for the `0x` prefix).
+     * Generates the `identity_commitment` for a specific World ID identity and for a specific credential.
+     * For the same World ID, each credential will generate a different `identity_commitment` for privacy reasons. This is
+     * accomplished by using a different `identity_trapdoor` internally.
+     *
+     * The identity commitment is the public part of a World ID. It is what gets inserted into the membership set on-chain. Identity commitments
+     * are not directly used in proof verification.
      */
-    func toHexString()  -> String
+    func getIdentityCommitment(credentialType: CredentialType)  -> Uint256
+    
+    /**
+     * Compares two `WorldId`s for equality.
+     *
+     * This function uses constant-time comparison to prevent timing attacks, but should be performant enough.
+     *
+     * Exposed for foreign use. Use `PartialEq` if comparing within Rust.
+     *
+     * # Returns
+     *
+     * `true` if the two `WorldId`s are equal, `false` otherwise.
+     */
+    func isEqualTo(other: WorldId)  -> Bool
     
 }
 /**
- * A wrapper around `U256` to represent a field element in the protocol. Wrapper enables FFI interoperability.
+ * A base World ID identity which can be used to generate World ID Proofs for different credentials.
  *
- * Most inputs and outputs from the zero-knowledge proofs are `U256` values.
- * While using `U256` directly is convenient and recommended when working with the proofs, particularly in Rust,
- * it is not a user-friendly type for interactions or communications in other languages / systems.
- *
- * Particularly, when sending proof inputs/outputs as JSON on HTTP requests, the values SHOULD
- * be represented as padded hex strings from Big Endian bytes.
+ * Most essential primitive for World ID.
  */
-open class U256Wrapper: U256WrapperProtocol, @unchecked Sendable {
+open class WorldId: WorldIdProtocol, @unchecked Sendable {
     fileprivate let handle: UInt64
 
     /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
@@ -3994,9 +4868,21 @@ open class U256Wrapper: U256WrapperProtocol, @unchecked Sendable {
     @_documentation(visibility: private)
 #endif
     public func uniffiCloneHandle() -> UInt64 {
-        return try! rustCall { uniffi_walletkit_core_fn_clone_u256wrapper(self.handle, $0) }
+        return try! rustCall { uniffi_walletkit_core_fn_clone_worldid(self.handle, $0) }
     }
-    // No primary constructor declared for this class.
+    /**
+     * Initializes a new `Identity` from a World ID secret. The identity is initialized for a specific environment.
+     */
+public convenience init(secret: Data, environment: Environment) {
+    let handle =
+        try! rustCall() {
+    uniffi_walletkit_core_fn_constructor_worldid_new(
+        FfiConverterData.lower(secret),
+        FfiConverterTypeEnvironment_lower(environment),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
 
     deinit {
         if handle == 0 {
@@ -4004,100 +4890,102 @@ open class U256Wrapper: U256WrapperProtocol, @unchecked Sendable {
             return
         }
 
-        try! rustCall { uniffi_walletkit_core_fn_free_u256wrapper(handle, $0) }
+        try! rustCall { uniffi_walletkit_core_fn_free_worldid(handle, $0) }
     }
 
     
-    /**
-     * Creates a `U256` value from an array of 4 `u64` values (little-endian). Least significant limb first.
-     *
-     * This is the same as the `U256::from_limbs` method, but exposed to foreign bindings.
-     *
-     * # Errors
-     *
-     * Will return an `Error::InvalidNumber` if the input is not a valid `U256` value.
-     */
-public static func fromLimbs(limbs: [UInt64])throws  -> U256Wrapper  {
-    return try  FfiConverterTypeU256Wrapper_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
-    uniffi_walletkit_core_fn_constructor_u256wrapper_from_limbs(
-        FfiConverterSequenceUInt64.lower(limbs),$0
-    )
-})
-}
-    
-    /**
-     * Creates a `U256` value from a `u32` value.
-     *
-     * Logically this will only support values up to 32 bits. For larger values a different initialization should be used.
-     */
-public static func fromU32(value: UInt32) -> U256Wrapper  {
-    return try!  FfiConverterTypeU256Wrapper_lift(try! rustCall() {
-    uniffi_walletkit_core_fn_constructor_u256wrapper_from_u32(
-        FfiConverterUInt32.lower(value),$0
-    )
-})
-}
-    
-    /**
-     * Creates a `U256` value from a `u64` value.
-     *
-     * Logically this will only support values up to 64 bits. For larger values a different initialization should be used.
-     */
-public static func fromU64(value: UInt64) -> U256Wrapper  {
-    return try!  FfiConverterTypeU256Wrapper_lift(try! rustCall() {
-    uniffi_walletkit_core_fn_constructor_u256wrapper_from_u64(
-        FfiConverterUInt64.lower(value),$0
-    )
-})
-}
-    
-    /**
-     * Attempts to parse a hex string as a `U256` value (wrapped).
-     *
-     * # Errors
-     * Will return an `Error::InvalidNumber` if the input is not a valid hex-string-presented number up to 256 bits.
-     */
-public static func tryFromHexString(hexString: String)throws  -> U256Wrapper  {
-    return try  FfiConverterTypeU256Wrapper_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
-    uniffi_walletkit_core_fn_constructor_u256wrapper_try_from_hex_string(
-        FfiConverterString.lower(hexString),$0
-    )
-})
-}
-    
 
     
     /**
-     * Converts the `U256` value into a vector of 4 `u64` values (little-endian). Least significant limb first.
+     * Generates a nullifier hash for a particular context (i.e. app + action) and the identity.
+     * The nullifier hash is a unique pseudo-random number for the particular identity and context.
+     * More information can be found [here](https://docs.world.org/world-id/concepts#vocabulary)
      *
-     * Using a vector as an array cannot be lowered to foreign bindings.
+     * [Protocol Reference](https://docs.semaphore.pse.dev/V2/technical-reference/circuits#nullifier-hash).
      */
-open func intoLimbs() -> [UInt64]  {
-    return try!  FfiConverterSequenceUInt64.lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_u256wrapper_into_limbs(
-            self.uniffiCloneHandle(),$0
+open func generateNullifierHash(context: ProofContext) -> Uint256  {
+    return try!  FfiConverterTypeUint256_lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_worldid_generate_nullifier_hash(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeProofContext_lower(context),$0
     )
 })
 }
     
     /**
-     * Outputs the decimal string representation of the `U256` value.
+     * Generates a World ID Zero-knowledge proof (ZKP) for a specific context (i.e. app + action) and the identity.
+     * This is equivalent to the user presenting their credential to a verifying party.
+     *
+     * **Requires the `semaphore` feature flag.**
+     *
+     * # Errors
+     * Will error if the Merkle Tree inclusion proof cannot be retrieved from the sign up sequencer or if
+     * something fails with the proof generation.
+     *
+     * # Example
+     * ```rust
+     * use walletkit_core::{proof::ProofContext, CredentialType, Environment, world_id::WorldId};
+     * use std::sync::Arc;
+     *
+     * # tokio_test::block_on(async {
+     * let world_id = WorldId::new(b"not_a_real_secret", &Environment::Staging);
+     * let context = ProofContext::new("app_ce4cb73cb75fc3b73b71ffb4de178410", Some("my_action".to_string()), None, CredentialType::Device);
+     * let proof = world_id.generate_proof(&context).await.unwrap();
+     * assert_eq!(proof.nullifier_hash.to_padded_hex_string(), "0x302e253346d2b41a0fd71562ffc6e5ddcbab6d8ea3dd6d68e6a695b5639b1c37")
+     * # })
+     * ```
+     * note: running the doctest example above requires an HTTP connection to the sequencer.
      */
-open func toDecimalString() -> String  {
-    return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_u256wrapper_to_decimal_string(
-            self.uniffiCloneHandle(),$0
+open func generateProof(context: ProofContext)async throws  -> ProofOutput  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_worldid_generate_proof(
+                    self.uniffiCloneHandle(),
+                    FfiConverterTypeProofContext_lower(context)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_u64,
+            completeFunc: ffi_walletkit_core_rust_future_complete_u64,
+            freeFunc: ffi_walletkit_core_rust_future_free_u64,
+            liftFunc: FfiConverterTypeProofOutput_lift,
+            errorHandler: FfiConverterTypeWalletKitError_lift
+        )
+}
+    
+    /**
+     * Generates the `identity_commitment` for a specific World ID identity and for a specific credential.
+     * For the same World ID, each credential will generate a different `identity_commitment` for privacy reasons. This is
+     * accomplished by using a different `identity_trapdoor` internally.
+     *
+     * The identity commitment is the public part of a World ID. It is what gets inserted into the membership set on-chain. Identity commitments
+     * are not directly used in proof verification.
+     */
+open func getIdentityCommitment(credentialType: CredentialType) -> Uint256  {
+    return try!  FfiConverterTypeUint256_lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_worldid_get_identity_commitment(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeCredentialType_lower(credentialType),$0
     )
 })
 }
     
     /**
-     * Outputs a hex string representation of the `U256` value padded to 32 bytes (plus two bytes for the `0x` prefix).
+     * Compares two `WorldId`s for equality.
+     *
+     * This function uses constant-time comparison to prevent timing attacks, but should be performant enough.
+     *
+     * Exposed for foreign use. Use `PartialEq` if comparing within Rust.
+     *
+     * # Returns
+     *
+     * `true` if the two `WorldId`s are equal, `false` otherwise.
      */
-open func toHexString() -> String  {
-    return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_u256wrapper_to_hex_string(
-            self.uniffiCloneHandle(),$0
+open func isEqualTo(other: WorldId) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_worldid_is_equal_to(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeWorldId_lower(other),$0
     )
 })
 }
@@ -4110,24 +4998,24 @@ open func toHexString() -> String  {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public struct FfiConverterTypeU256Wrapper: FfiConverter {
+public struct FfiConverterTypeWorldId: FfiConverter {
     typealias FfiType = UInt64
-    typealias SwiftType = U256Wrapper
+    typealias SwiftType = WorldId
 
-    public static func lift(_ handle: UInt64) throws -> U256Wrapper {
-        return U256Wrapper(unsafeFromHandle: handle)
+    public static func lift(_ handle: UInt64) throws -> WorldId {
+        return WorldId(unsafeFromHandle: handle)
     }
 
-    public static func lower(_ value: U256Wrapper) -> UInt64 {
+    public static func lower(_ value: WorldId) -> UInt64 {
         return value.uniffiCloneHandle()
     }
 
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> U256Wrapper {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WorldId {
         let handle: UInt64 = try readInt(&buf)
         return try lift(handle)
     }
 
-    public static func write(_ value: U256Wrapper, into buf: inout [UInt8]) {
+    public static func write(_ value: WorldId, into buf: inout [UInt8]) {
         writeInt(&buf, lower(value))
     }
 }
@@ -4136,15 +5024,15 @@ public struct FfiConverterTypeU256Wrapper: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeU256Wrapper_lift(_ handle: UInt64) throws -> U256Wrapper {
-    return try FfiConverterTypeU256Wrapper.lift(handle)
+public func FfiConverterTypeWorldId_lift(_ handle: UInt64) throws -> WorldId {
+    return try FfiConverterTypeWorldId.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeU256Wrapper_lower(_ value: U256Wrapper) -> UInt64 {
-    return FfiConverterTypeU256Wrapper.lower(value)
+public func FfiConverterTypeWorldId_lower(_ value: WorldId) -> UInt64 {
+    return FfiConverterTypeWorldId.lower(value)
 }
 
 
@@ -4376,6 +5264,112 @@ public func FfiConverterTypeBlobKind_lift(_ buf: RustBuffer) throws -> BlobKind 
 #endif
 public func FfiConverterTypeBlobKind_lower(_ value: BlobKind) -> RustBuffer {
     return FfiConverterTypeBlobKind.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * A `CredentialType` represents a specific credential which can be presented by a World ID holder.
+ *
+ * For example, if a World ID is Orb-verified, the holder can use their `Orb` credential to prove they have a
+ * valid Orb-verified credential.
+ *
+ * More details in `https://docs.world.org/world-id/concepts#proof-of-personhood`
+ */
+
+public enum CredentialType: Equatable, Hashable {
+    
+    /**
+     * Represents persons who have been biometrically verified at an Orb. Highest level of proof of personhood verification.
+     */
+    case orb
+    /**
+     * Verified biometric ICAO-9303 government-issued document holder
+     */
+    case document
+    /**
+     * Verified biometric ICAO-9303 government-issued document holder with additional presence checks
+     * such as Chip Authentication or Active Authentication.
+     *
+     *
+     * The identity trapdoor is `secure_passport` but it's serialized as `secure_document` to match `idkit-js` and the Developer Portal.
+     * Reference: <https://github.com/worldcoin/idkit-js/blob/main/packages/core/src/types/config.ts#L18>
+     */
+    case secureDocument
+    /**
+     * Represents a semi-unique device
+     */
+    case device
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension CredentialType: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCredentialType: FfiConverterRustBuffer {
+    typealias SwiftType = CredentialType
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CredentialType {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .orb
+        
+        case 2: return .document
+        
+        case 3: return .secureDocument
+        
+        case 4: return .device
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: CredentialType, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .orb:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .document:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .secureDocument:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .device:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCredentialType_lift(_ buf: RustBuffer) throws -> CredentialType {
+    return try FfiConverterTypeCredentialType.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCredentialType_lower(_ value: CredentialType) -> RustBuffer {
+    return FfiConverterTypeCredentialType.lower(value)
 }
 
 
@@ -5593,31 +6587,6 @@ fileprivate struct FfiConverterOptionTypeRegion: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterSequenceUInt64: FfiConverterRustBuffer {
-    typealias SwiftType = [UInt64]
-
-    public static func write(_ value: [UInt64], into buf: inout [UInt8]) {
-        let len = Int32(value.count)
-        writeInt(&buf, len)
-        for item in value {
-            FfiConverterUInt64.write(item, into: &buf)
-        }
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [UInt64] {
-        let len: Int32 = try readInt(&buf)
-        var seq = [UInt64]()
-        seq.reserveCapacity(Int(len))
-        for _ in 0 ..< len {
-            seq.append(try FfiConverterUInt64.read(from: &buf))
-        }
-        return seq
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
 fileprivate struct FfiConverterSequenceTypeCredentialRecord: FfiConverterRustBuffer {
     typealias SwiftType = [CredentialRecord]
 
@@ -5665,6 +6634,58 @@ fileprivate struct FfiConverterDictionaryStringString: FfiConverterRustBuffer {
         return dict
     }
 }
+
+
+
+
+/**
+ * Typealias from the type name used in the UDL file to the custom type.  This
+ * is needed because the UDL type name is used in function/method signatures.
+ */
+public typealias Uint256 = BigUInt
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeUint256: FfiConverter {
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Uint256 {
+        let builtinValue = try FfiConverterString.read(from: &buf)
+        return BigUInt(builtinValue, radix: 16)!
+    }
+
+    public static func write(_ value: Uint256, into buf: inout [UInt8]) {
+        let builtinValue = String(value, radix: 16)
+        return FfiConverterString.write(builtinValue, into: &buf)
+    }
+
+    public static func lift(_ value: RustBuffer) throws -> Uint256 {
+        let builtinValue = try FfiConverterString.lift(value)
+        return BigUInt(builtinValue, radix: 16)!
+    }
+
+    public static func lower(_ value: Uint256) -> RustBuffer {
+        let builtinValue = String(value, radix: 16)
+        return FfiConverterString.lower(builtinValue)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeUint256_lift(_ value: RustBuffer) throws -> Uint256 {
+    return try FfiConverterTypeUint256.lift(value)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeUint256_lower(_ value: Uint256) -> RustBuffer {
+    return FfiConverterTypeUint256.lower(value)
+}
+
 private let UNIFFI_RUST_FUTURE_POLL_READY: Int8 = 0
 private let UNIFFI_RUST_FUTURE_POLL_WAKE: Int8 = 1
 
@@ -5795,7 +6816,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_authenticator_generate_proof() != 3542) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_get_packed_account_data_remote() != 45330) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_get_packed_account_data_remote() != 55961) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_authenticator_leaf_index() != 2189) {
@@ -5804,7 +6825,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_authenticator_onchain_address() != 44374) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_packed_account_data() != 7830) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_packed_account_data() != 38096) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_authenticator_init_storage() != 17038) {
@@ -5939,13 +6960,43 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_storageprovider_paths() != 46848) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_u256wrapper_into_limbs() != 29402) {
+    if (uniffi_walletkit_core_checksum_method_addressbook_generate_proof_context() != 32396) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_u256wrapper_to_decimal_string() != 7951) {
+    if (uniffi_walletkit_core_checksum_method_proofcontext_get_credential_type() != 55876) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_u256wrapper_to_hex_string() != 64641) {
+    if (uniffi_walletkit_core_checksum_method_proofcontext_get_external_nullifier() != 13444) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_proofcontext_get_signal_hash() != 31443) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_proofoutput_get_credential_type() != 42354) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_proofoutput_get_merkle_root() != 57428) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_proofoutput_get_nullifier_hash() != 839) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_proofoutput_get_proof_as_string() != 829) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_proofoutput_to_json() != 19556) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_worldid_generate_nullifier_hash() != 17959) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_worldid_generate_proof() != 13491) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_worldid_get_identity_commitment() != 23355) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_worldid_is_equal_to() != 27629) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_authenticator_init() != 19156) {
@@ -5987,16 +7038,31 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_constructor_storagepaths_from_root() != 48567) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_u256wrapper_from_limbs() != 24492) {
+    if (uniffi_walletkit_core_checksum_constructor_addressbook_new() != 61276) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_u256wrapper_from_u32() != 25992) {
+    if (uniffi_walletkit_core_checksum_constructor_merkletreeproof_from_identity_commitment() != 44877) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_u256wrapper_from_u64() != 60966) {
+    if (uniffi_walletkit_core_checksum_constructor_merkletreeproof_from_json_proof() != 41806) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_u256wrapper_try_from_hex_string() != 38375) {
+    if (uniffi_walletkit_core_checksum_constructor_proofcontext_legacy_new_from_pre_image_external_nullifier() != 38700) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_constructor_proofcontext_legacy_new_from_raw_external_nullifier() != 37549) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_constructor_proofcontext_new() != 45127) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_constructor_proofcontext_new_from_bytes() != 44050) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_constructor_proofcontext_new_from_signal_hash() != 25497) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_constructor_worldid_new() != 41503) {
         return InitializationResult.apiChecksumMismatch
     }
 

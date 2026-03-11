@@ -1629,11 +1629,14 @@ public protocol CredentialStoreProtocol: AnyObject, Sendable {
      * delete after the backup sync completes. The file contains the full
      * vault schema and data without the `sqlite3mc` encryption layer.
      *
+     * `dest_dir` is the directory where the plaintext backup file will be
+     * written.
+     *
      * # Errors
      *
      * Returns an error if the store is not initialized or the export fails.
      */
-    func exportVaultForBackup() throws  -> String
+    func exportVaultForBackup(destDir: String) throws  -> String
     
     /**
      * Imports credentials from a plaintext vault backup produced by
@@ -1826,14 +1829,18 @@ open func dangerDeleteAllCredentials()throws  -> UInt64  {
      * delete after the backup sync completes. The file contains the full
      * vault schema and data without the `sqlite3mc` encryption layer.
      *
+     * `dest_dir` is the directory where the plaintext backup file will be
+     * written.
+     *
      * # Errors
      *
      * Returns an error if the store is not initialized or the export fails.
      */
-open func exportVaultForBackup()throws  -> String  {
+open func exportVaultForBackup(destDir: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeStorageError_lift) {
     uniffi_walletkit_core_fn_method_credentialstore_export_vault_for_backup(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(destDir),$0
     )
 })
 }
@@ -4052,11 +4059,6 @@ public protocol StoragePathsProtocol: AnyObject, Sendable {
     func nullifierZkeyPathString()  -> String
     
     /**
-     * Returns the path to the plaintext vault backup as a string.
-     */
-    func plaintextVaultBackupPathString()  -> String
-    
-    /**
      * Returns the path to the query graph file as a string.
      */
     func queryGraphPathString()  -> String
@@ -4199,17 +4201,6 @@ open func nullifierGraphPathString() -> String  {
 open func nullifierZkeyPathString() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_walletkit_core_fn_method_storagepaths_nullifier_zkey_path_string(
-            self.uniffiCloneHandle(),$0
-    )
-})
-}
-    
-    /**
-     * Returns the path to the plaintext vault backup as a string.
-     */
-open func plaintextVaultBackupPathString() -> String  {
-    return try!  FfiConverterString.lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_storagepaths_plaintext_vault_backup_path_string(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -6879,7 +6870,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_credentialstore_danger_delete_all_credentials() != 47974) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_export_vault_for_backup() != 46932) {
+    if (uniffi_walletkit_core_checksum_method_credentialstore_export_vault_for_backup() != 16087) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_credentialstore_import_vault_from_backup() != 7163) {
@@ -6916,9 +6907,6 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_storagepaths_nullifier_zkey_path_string() != 59479) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_walletkit_core_checksum_method_storagepaths_plaintext_vault_backup_path_string() != 31008) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_storagepaths_query_graph_path_string() != 18563) {

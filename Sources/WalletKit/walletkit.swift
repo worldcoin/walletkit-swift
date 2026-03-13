@@ -1425,6 +1425,15 @@ public func FfiConverterTypeAuthenticator_lower(_ value: Authenticator) -> UInt6
 public protocol CredentialProtocol: AnyObject, Sendable {
     
     /**
+     * Returns the credential's `associated_data_hash` field element.
+     *
+     * This is a Poseidon2 commitment to the associated data (e.g. a PCP archive)
+     * set by the issuer at issuance time. Returns `FieldElement::ZERO` if no
+     * associated data was committed to.
+     */
+    func associatedDataHash()  -> FieldElement
+    
+    /**
      * Returns the credential's expiration timestamp (unix seconds).
      */
     func expiresAt()  -> UInt64
@@ -1513,6 +1522,21 @@ public static func fromBytes(bytes: Data)throws  -> Credential  {
 }
     
 
+    
+    /**
+     * Returns the credential's `associated_data_hash` field element.
+     *
+     * This is a Poseidon2 commitment to the associated data (e.g. a PCP archive)
+     * set by the issuer at issuance time. Returns `FieldElement::ZERO` if no
+     * associated data was committed to.
+     */
+open func associatedDataHash() -> FieldElement  {
+    return try!  FfiConverterTypeFieldElement_lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_credential_associated_data_hash(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
     
     /**
      * Returns the credential's expiration timestamp (unix seconds).
@@ -1623,24 +1647,20 @@ public protocol CredentialStoreProtocol: AnyObject, Sendable {
     func dangerDeleteAllCredentials() throws  -> UInt64
     
     /**
-     * Exports a plaintext (unencrypted) copy of the vault for backup.
-     *
-     * The returned path points to a transient file that the caller **must**
-     * delete after the backup sync completes. The file contains the full
-     * vault schema and data without the `sqlite3mc` encryption layer.
-     *
-     * `dest_dir` is the directory where the plaintext backup file will be
-     * written.
+     * Deletes a credential by ID.
      *
      * # Errors
      *
-     * Returns an error if the store is not initialized or the export fails.
+     * Returns an error if the delete operation fails or the credential ID does
+     * not exist.
      */
-    func exportVaultForBackup(destDir: String) throws  -> String
+    func deleteCredential(credentialId: UInt64) throws 
     
     /**
-     * Imports credentials from a plaintext vault backup produced by
-     * [`export_vault_for_backup`](Self::export_vault_for_backup).
+     * Exports a plaintext (unencrypted) copy of the vault for backup.
+     *
+     * The returned path points to a transient file containing the full vault
+     * Imports credentials from a plaintext vault backup.
      *
      * The store must already be initialized via [`init`](Self::init).
      * Intended for restore on a fresh install where the vault is empty.
@@ -1663,7 +1683,10 @@ public protocol CredentialStoreProtocol: AnyObject, Sendable {
     func `init`(leafIndex: UInt64, now: UInt64) throws 
     
     /**
-     * Lists active credential metadata, optionally filtered by issuer schema ID.
+     * Lists credential metadata, optionally filtered by issuer schema ID.
+     *
+     * Results include both active and expired credentials. Expiry status is
+     * reported via [`CredentialRecord::is_expired`].
      *
      * # Errors
      *
@@ -1688,6 +1711,18 @@ public protocol CredentialStoreProtocol: AnyObject, Sendable {
      * Returns an error if the cache insert fails.
      */
     func merkleCachePut(proofBytes: Data, now: UInt64, ttlSeconds: UInt64) throws 
+    
+    /**
+     * Registers a backup manager that will be notified after vault mutations
+     * ([`store_credential`](Self::store_credential),
+     * [`danger_delete_all_credentials`](Self::danger_delete_all_credentials)).
+     * Backup failures are logged but do not affect the mutation result.
+     *
+     * # Errors
+     *
+     * Returns an error if the backup mutex is poisoned.
+     */
+    func setBackupManager(manager: WalletKitBackupManager) throws 
     
     /**
      * Returns the storage paths used by this handle.
@@ -1823,31 +1858,26 @@ open func dangerDeleteAllCredentials()throws  -> UInt64  {
 }
     
     /**
-     * Exports a plaintext (unencrypted) copy of the vault for backup.
-     *
-     * The returned path points to a transient file that the caller **must**
-     * delete after the backup sync completes. The file contains the full
-     * vault schema and data without the `sqlite3mc` encryption layer.
-     *
-     * `dest_dir` is the directory where the plaintext backup file will be
-     * written.
+     * Deletes a credential by ID.
      *
      * # Errors
      *
-     * Returns an error if the store is not initialized or the export fails.
+     * Returns an error if the delete operation fails or the credential ID does
+     * not exist.
      */
-open func exportVaultForBackup(destDir: String)throws  -> String  {
-    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeStorageError_lift) {
-    uniffi_walletkit_core_fn_method_credentialstore_export_vault_for_backup(
+open func deleteCredential(credentialId: UInt64)throws   {try rustCallWithError(FfiConverterTypeStorageError_lift) {
+    uniffi_walletkit_core_fn_method_credentialstore_delete_credential(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(destDir),$0
+        FfiConverterUInt64.lower(credentialId),$0
     )
-})
+}
 }
     
     /**
-     * Imports credentials from a plaintext vault backup produced by
-     * [`export_vault_for_backup`](Self::export_vault_for_backup).
+     * Exports a plaintext (unencrypted) copy of the vault for backup.
+     *
+     * The returned path points to a transient file containing the full vault
+     * Imports credentials from a plaintext vault backup.
      *
      * The store must already be initialized via [`init`](Self::init).
      * Intended for restore on a fresh install where the vault is empty.
@@ -1883,7 +1913,10 @@ open func `init`(leafIndex: UInt64, now: UInt64)throws   {try rustCallWithError(
 }
     
     /**
-     * Lists active credential metadata, optionally filtered by issuer schema ID.
+     * Lists credential metadata, optionally filtered by issuer schema ID.
+     *
+     * Results include both active and expired credentials. Expiry status is
+     * reported via [`CredentialRecord::is_expired`].
      *
      * # Errors
      *
@@ -1928,6 +1961,24 @@ open func merkleCachePut(proofBytes: Data, now: UInt64, ttlSeconds: UInt64)throw
         FfiConverterData.lower(proofBytes),
         FfiConverterUInt64.lower(now),
         FfiConverterUInt64.lower(ttlSeconds),$0
+    )
+}
+}
+    
+    /**
+     * Registers a backup manager that will be notified after vault mutations
+     * ([`store_credential`](Self::store_credential),
+     * [`danger_delete_all_credentials`](Self::danger_delete_all_credentials)).
+     * Backup failures are logged but do not affect the mutation result.
+     *
+     * # Errors
+     *
+     * Returns an error if the backup mutex is poisoned.
+     */
+open func setBackupManager(manager: WalletKitBackupManager)throws   {try rustCallWithError(FfiConverterTypeStorageError_lift) {
+    uniffi_walletkit_core_fn_method_credentialstore_set_backup_manager(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeWalletKitBackupManager_lower(manager),$0
     )
 }
 }
@@ -4752,6 +4803,301 @@ public func FfiConverterTypeTfhNfcIssuer_lower(_ value: TfhNfcIssuer) -> UInt64 
 
 
 /**
+ * Callback interface for notifying the host app that the credential vault
+ * has changed and needs to be synced to the backup.
+ *
+ * The host app (e.g. iOS) implements this trait and passes it to
+ * `CredentialStore::set_backup_manager`. `WalletKit` calls
+ * [`on_vault_changed`](WalletKitBackupManager::on_vault_changed) after
+ * `store_credential`, `delete_credential`, and `danger_delete_all_credentials`, passing the path
+ * to a freshly-exported plaintext vault file.
+ *
+ * **Important:** the exported file is deleted automatically when this
+ * callback returns. The implementor must copy or upload the file contents
+ * synchronously during this call.
+ *
+ * **Warning:** the implementor must **not** call back into
+ * `CredentialStore` (e.g. `store_credential`, `delete_credential`) from
+ * within `on_vault_changed`. Doing so will deadlock because the
+ * notification path holds an internal lock for the duration of the
+ * callback.
+ */
+public protocol WalletKitBackupManager: AnyObject, Sendable {
+    
+    /**
+     * Directory where plaintext vault exports are written before the
+     * callback is invoked.
+     */
+    func destDir()  -> String
+    
+    /**
+     * Called after the vault has been mutated and exported.
+     *
+     * `vault_file_path` is the path to the exported plaintext vault file.
+     * The file is deleted automatically when this method returns, so the
+     * implementor must finish reading or copying it before returning.
+     *
+     * # Errors
+     *
+     * Returning `Err` is treated as best-effort — the error is logged but
+     * does not affect the vault mutation that triggered this call. Returning
+     * `Result` (rather than `()`) ensures that host-side exceptions are
+     * translated into a Rust `Err` by `UniFFI` instead of panicking.
+     */
+    func onVaultChanged(vaultFilePath: String) throws 
+    
+}
+/**
+ * Callback interface for notifying the host app that the credential vault
+ * has changed and needs to be synced to the backup.
+ *
+ * The host app (e.g. iOS) implements this trait and passes it to
+ * `CredentialStore::set_backup_manager`. `WalletKit` calls
+ * [`on_vault_changed`](WalletKitBackupManager::on_vault_changed) after
+ * `store_credential`, `delete_credential`, and `danger_delete_all_credentials`, passing the path
+ * to a freshly-exported plaintext vault file.
+ *
+ * **Important:** the exported file is deleted automatically when this
+ * callback returns. The implementor must copy or upload the file contents
+ * synchronously during this call.
+ *
+ * **Warning:** the implementor must **not** call back into
+ * `CredentialStore` (e.g. `store_credential`, `delete_credential`) from
+ * within `on_vault_changed`. Doing so will deadlock because the
+ * notification path holds an internal lock for the duration of the
+ * callback.
+ */
+open class WalletKitBackupManagerImpl: WalletKitBackupManager, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_walletkitbackupmanager(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_walletkitbackupmanager(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Directory where plaintext vault exports are written before the
+     * callback is invoked.
+     */
+open func destDir() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_walletkitbackupmanager_dest_dir(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Called after the vault has been mutated and exported.
+     *
+     * `vault_file_path` is the path to the exported plaintext vault file.
+     * The file is deleted automatically when this method returns, so the
+     * implementor must finish reading or copying it before returning.
+     *
+     * # Errors
+     *
+     * Returning `Err` is treated as best-effort — the error is logged but
+     * does not affect the vault mutation that triggered this call. Returning
+     * `Result` (rather than `()`) ensures that host-side exceptions are
+     * translated into a Rust `Err` by `UniFFI` instead of panicking.
+     */
+open func onVaultChanged(vaultFilePath: String)throws   {try rustCallWithError(FfiConverterTypeStorageError_lift) {
+    uniffi_walletkit_core_fn_method_walletkitbackupmanager_on_vault_changed(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(vaultFilePath),$0
+    )
+}
+}
+    
+
+    
+}
+
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceWalletKitBackupManager {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // This creates 1-element array, since this seems to be the only way to construct a const
+    // pointer that we can pass to the Rust code.
+    static let vtable: [UniffiVTableCallbackInterfaceWalletKitBackupManager] = [UniffiVTableCallbackInterfaceWalletKitBackupManager(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeWalletKitBackupManager.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface WalletKitBackupManager: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeWalletKitBackupManager.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface WalletKitBackupManager: handle missing in uniffiClone")
+            }
+        },
+        destDir: { (
+            uniffiHandle: UInt64,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterTypeWalletKitBackupManager.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.destDir(
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        onVaultChanged: { (
+            uniffiHandle: UInt64,
+            vaultFilePath: RustBuffer,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeWalletKitBackupManager.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.onVaultChanged(
+                     vaultFilePath: try FfiConverterString.lift(vaultFilePath)
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeStorageError_lower
+            )
+        }
+    )]
+}
+
+private func uniffiCallbackInitWalletKitBackupManager() {
+    uniffi_walletkit_core_fn_init_callback_vtable_walletkitbackupmanager(UniffiCallbackInterfaceWalletKitBackupManager.vtable)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWalletKitBackupManager: FfiConverter {
+    fileprivate static let handleMap = UniffiHandleMap<WalletKitBackupManager>()
+
+    typealias FfiType = UInt64
+    typealias SwiftType = WalletKitBackupManager
+
+    public static func lift(_ handle: UInt64) throws -> WalletKitBackupManager {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return WalletKitBackupManagerImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
+    }
+
+    public static func lower(_ value: WalletKitBackupManager) -> UInt64 {
+         if let rustImpl = value as? WalletKitBackupManagerImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WalletKitBackupManager {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: WalletKitBackupManager, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWalletKitBackupManager_lift(_ handle: UInt64) throws -> WalletKitBackupManager {
+    return try FfiConverterTypeWalletKitBackupManager.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWalletKitBackupManager_lower(_ value: WalletKitBackupManager) -> UInt64 {
+    return FfiConverterTypeWalletKitBackupManager.lower(value)
+}
+
+
+
+
+
+
+/**
  * A base World ID identity which can be used to generate World ID Proofs for different credentials.
  *
  * Most essential primitive for World ID.
@@ -5048,6 +5394,12 @@ public struct CredentialRecord: Equatable, Hashable {
      * Expiry timestamp (seconds).
      */
     public var expiresAt: UInt64
+    /**
+     * Whether the credential is expired at query time (`now >= expires_at`).
+     *
+     * This value is computed when listing credentials and is not persisted.
+     */
+    public var isExpired: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -5060,10 +5412,16 @@ public struct CredentialRecord: Equatable, Hashable {
          */issuerSchemaId: UInt64, 
         /**
          * Expiry timestamp (seconds).
-         */expiresAt: UInt64) {
+         */expiresAt: UInt64, 
+        /**
+         * Whether the credential is expired at query time (`now >= expires_at`).
+         *
+         * This value is computed when listing credentials and is not persisted.
+         */isExpired: Bool) {
         self.credentialId = credentialId
         self.issuerSchemaId = issuerSchemaId
         self.expiresAt = expiresAt
+        self.isExpired = isExpired
     }
 
     
@@ -5084,7 +5442,8 @@ public struct FfiConverterTypeCredentialRecord: FfiConverterRustBuffer {
             try CredentialRecord(
                 credentialId: FfiConverterUInt64.read(from: &buf), 
                 issuerSchemaId: FfiConverterUInt64.read(from: &buf), 
-                expiresAt: FfiConverterUInt64.read(from: &buf)
+                expiresAt: FfiConverterUInt64.read(from: &buf), 
+                isExpired: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -5092,6 +5451,7 @@ public struct FfiConverterTypeCredentialRecord: FfiConverterRustBuffer {
         FfiConverterUInt64.write(value.credentialId, into: &buf)
         FfiConverterUInt64.write(value.issuerSchemaId, into: &buf)
         FfiConverterUInt64.write(value.expiresAt, into: &buf)
+        FfiConverterBool.write(value.isExpired, into: &buf)
     }
 }
 
@@ -5910,6 +6270,14 @@ public enum StorageError: Swift.Error, Equatable, Hashable, Foundation.Localized
      */
     case CredentialNotFound
     /**
+     * Credential ID not found when deleting from the vault.
+     */
+    case CredentialIdNotFound(
+        /**
+         * Credential ID provided by the caller.
+         */credentialId: UInt64
+    )
+    /**
      * Corrupted cache entry
      */
     case CorruptedCacheEntry(
@@ -5988,10 +6356,13 @@ public struct FfiConverterTypeStorageError: FfiConverterRustBuffer {
         case 12: return .NotInitialized
         case 13: return .NullifierAlreadyDisclosed
         case 14: return .CredentialNotFound
-        case 15: return .CorruptedCacheEntry(
+        case 15: return .CredentialIdNotFound(
+            credentialId: try FfiConverterUInt64.read(from: &buf)
+            )
+        case 16: return .CorruptedCacheEntry(
             keyPrefix: try FfiConverterUInt8.read(from: &buf)
             )
-        case 16: return .UnexpectedUniFfiCallbackError(
+        case 17: return .UnexpectedUniFfiCallbackError(
             try FfiConverterString.read(from: &buf)
             )
 
@@ -6074,13 +6445,18 @@ public struct FfiConverterTypeStorageError: FfiConverterRustBuffer {
             writeInt(&buf, Int32(14))
         
         
-        case let .CorruptedCacheEntry(keyPrefix):
+        case let .CredentialIdNotFound(credentialId):
             writeInt(&buf, Int32(15))
+            FfiConverterUInt64.write(credentialId, into: &buf)
+            
+        
+        case let .CorruptedCacheEntry(keyPrefix):
+            writeInt(&buf, Int32(16))
             FfiConverterUInt8.write(keyPrefix, into: &buf)
             
         
         case let .UnexpectedUniFfiCallbackError(v1):
-            writeInt(&buf, Int32(16))
+            writeInt(&buf, Int32(17))
             FfiConverterString.write(v1, into: &buf)
             
         }
@@ -6825,6 +7201,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_initializingauthenticator_poll_status() != 61377) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_method_credential_associated_data_hash() != 8261) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_method_credential_expires_at() != 5794) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -6870,22 +7249,25 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_credentialstore_danger_delete_all_credentials() != 47974) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_export_vault_for_backup() != 16087) {
+    if (uniffi_walletkit_core_checksum_method_credentialstore_delete_credential() != 48725) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_import_vault_from_backup() != 7163) {
+    if (uniffi_walletkit_core_checksum_method_credentialstore_import_vault_from_backup() != 29045) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_credentialstore_init() != 6887) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_list_credentials() != 10253) {
+    if (uniffi_walletkit_core_checksum_method_credentialstore_list_credentials() != 46271) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_credentialstore_merkle_cache_get() != 47950) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_credentialstore_merkle_cache_put() != 32651) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_credentialstore_set_backup_manager() != 4431) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_credentialstore_storage_paths() != 17739) {
@@ -6946,6 +7328,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_storageprovider_paths() != 46848) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_walletkitbackupmanager_dest_dir() != 42540) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_walletkitbackupmanager_on_vault_changed() != 32666) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_addressbook_generate_proof_context() != 32396) {
@@ -7058,6 +7446,7 @@ private let initializationResult: InitializationResult = {
     uniffiCallbackInitDeviceKeystore()
     uniffiCallbackInitLogger()
     uniffiCallbackInitStorageProvider()
+    uniffiCallbackInitWalletKitBackupManager()
     return InitializationResult.ok
 }()
 

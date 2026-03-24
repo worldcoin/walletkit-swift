@@ -1061,6 +1061,20 @@ public protocol AuthenticatorProtocol: AnyObject, Sendable {
     func computeCredentialSub(blindingFactor: FieldElement)  -> FieldElement
     
     /**
+     * Signs an arbitrary challenge with the authenticator's on-chain key.
+     *
+     * # Warning
+     * This is considered a dangerous operation because it leaks the user's on-chain key,
+     * hence its `leaf_index`. The only acceptable use is to prove the user's `leaf_index`
+     * to a Recovery Agent. The Recovery Agent is the only party beyond the user who needs
+     * to know the `leaf_index`.
+     *
+     * # Errors
+     * May error if very unexpectedly the signing process fails. Not expected.
+     */
+    func dangerSignChallenge(challenge: Data) throws  -> Data
+    
+    /**
      * Generates a blinding factor for a Credential sub (through OPRF Nodes).
      *
      * See [`CoreAuthenticator::generate_credential_blinding_factor`] for more details.
@@ -1233,6 +1247,27 @@ open func computeCredentialSub(blindingFactor: FieldElement) -> FieldElement  {
     uniffi_walletkit_core_fn_method_authenticator_compute_credential_sub(
             self.uniffiCloneHandle(),
         FfiConverterTypeFieldElement_lower(blindingFactor),$0
+    )
+})
+}
+    
+    /**
+     * Signs an arbitrary challenge with the authenticator's on-chain key.
+     *
+     * # Warning
+     * This is considered a dangerous operation because it leaks the user's on-chain key,
+     * hence its `leaf_index`. The only acceptable use is to prove the user's `leaf_index`
+     * to a Recovery Agent. The Recovery Agent is the only party beyond the user who needs
+     * to know the `leaf_index`.
+     *
+     * # Errors
+     * May error if very unexpectedly the signing process fails. Not expected.
+     */
+open func dangerSignChallenge(challenge: Data)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+    uniffi_walletkit_core_fn_method_authenticator_danger_sign_challenge(
+            self.uniffiCloneHandle(),
+        FfiConverterData.lower(challenge),$0
     )
 })
 }
@@ -1721,6 +1756,22 @@ public protocol CredentialStoreProtocol: AnyObject, Sendable {
     func merkleCachePut(proofBytes: Data, now: UInt64, ttlSeconds: UInt64) throws 
     
     /**
+     * Registers a listener that is called after every successful vault
+     * mutation (store, delete, purge).
+     *
+     * Only one listener can be active at a time — calling this replaces any
+     * previously registered listener. The previous delivery thread shuts down
+     * automatically when the old sender is dropped.
+     *
+     * Delivery happens on a dedicated background thread to avoid re-entering
+     * the `UniFFI` call stack (see `logger.rs` for rationale).
+     *
+     * **Warning:** the listener **must not** call back into this
+     * `CredentialStore` — doing so will deadlock.
+     */
+    func setVaultChangedListener(listener: VaultChangedListener) 
+    
+    /**
      * Returns the storage paths used by this handle.
      *
      * # Errors
@@ -1971,6 +2022,28 @@ open func merkleCachePut(proofBytes: Data, now: UInt64, ttlSeconds: UInt64)throw
         FfiConverterData.lower(proofBytes),
         FfiConverterUInt64.lower(now),
         FfiConverterUInt64.lower(ttlSeconds),$0
+    )
+}
+}
+    
+    /**
+     * Registers a listener that is called after every successful vault
+     * mutation (store, delete, purge).
+     *
+     * Only one listener can be active at a time — calling this replaces any
+     * previously registered listener. The previous delivery thread shuts down
+     * automatically when the old sender is dropped.
+     *
+     * Delivery happens on a dedicated background thread to avoid re-entering
+     * the `UniFFI` call stack (see `logger.rs` for rationale).
+     *
+     * **Warning:** the listener **must not** call back into this
+     * `CredentialStore` — doing so will deadlock.
+     */
+open func setVaultChangedListener(listener: VaultChangedListener)  {try! rustCall() {
+    uniffi_walletkit_core_fn_method_credentialstore_set_vault_changed_listener(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeVaultChangedListener_lower(listener),$0
     )
 }
 }
@@ -4795,6 +4868,233 @@ public func FfiConverterTypeTfhNfcIssuer_lower(_ value: TfhNfcIssuer) -> UInt64 
 
 
 /**
+ * Listener notified when the credential vault is mutated.
+ *
+ * Register via [`super::CredentialStore::set_vault_changed_listener`]. The
+ * callback is delivered on a dedicated background thread to avoid re-entering
+ * the `UniFFI` call stack (see `logger.rs` for rationale).
+ *
+ * # Expected usage
+ *
+ * The host app should treat this as a trigger to take actions when the vault
+ * state has mutated. It should contain synchronous actions only.
+ *
+ * # Safety
+ *
+ * **Warning:** implementors **must not** call back into
+ * [`super::CredentialStore`] from
+ * [`on_vault_changed`](VaultChangedListener::on_vault_changed) — doing so
+ * will deadlock.
+ */
+public protocol VaultChangedListener: AnyObject, Sendable {
+    
+    /**
+     * Called after a successful vault mutation (store, delete, purge).
+     */
+    func onVaultChanged() 
+    
+}
+/**
+ * Listener notified when the credential vault is mutated.
+ *
+ * Register via [`super::CredentialStore::set_vault_changed_listener`]. The
+ * callback is delivered on a dedicated background thread to avoid re-entering
+ * the `UniFFI` call stack (see `logger.rs` for rationale).
+ *
+ * # Expected usage
+ *
+ * The host app should treat this as a trigger to take actions when the vault
+ * state has mutated. It should contain synchronous actions only.
+ *
+ * # Safety
+ *
+ * **Warning:** implementors **must not** call back into
+ * [`super::CredentialStore`] from
+ * [`on_vault_changed`](VaultChangedListener::on_vault_changed) — doing so
+ * will deadlock.
+ */
+open class VaultChangedListenerImpl: VaultChangedListener, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_vaultchangedlistener(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_vaultchangedlistener(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Called after a successful vault mutation (store, delete, purge).
+     */
+open func onVaultChanged()  {try! rustCall() {
+    uniffi_walletkit_core_fn_method_vaultchangedlistener_on_vault_changed(
+            self.uniffiCloneHandle(),$0
+    )
+}
+}
+    
+
+    
+}
+
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceVaultChangedListener {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // This creates 1-element array, since this seems to be the only way to construct a const
+    // pointer that we can pass to the Rust code.
+    static let vtable: [UniffiVTableCallbackInterfaceVaultChangedListener] = [UniffiVTableCallbackInterfaceVaultChangedListener(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeVaultChangedListener.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface VaultChangedListener: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeVaultChangedListener.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface VaultChangedListener: handle missing in uniffiClone")
+            }
+        },
+        onVaultChanged: { (
+            uniffiHandle: UInt64,
+            uniffiOutReturn: UnsafeMutableRawPointer,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> () in
+                guard let uniffiObj = try? FfiConverterTypeVaultChangedListener.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.onVaultChanged(
+                )
+            }
+
+            
+            let writeReturn = { () }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        }
+    )]
+}
+
+private func uniffiCallbackInitVaultChangedListener() {
+    uniffi_walletkit_core_fn_init_callback_vtable_vaultchangedlistener(UniffiCallbackInterfaceVaultChangedListener.vtable)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeVaultChangedListener: FfiConverter {
+    fileprivate static let handleMap = UniffiHandleMap<VaultChangedListener>()
+
+    typealias FfiType = UInt64
+    typealias SwiftType = VaultChangedListener
+
+    public static func lift(_ handle: UInt64) throws -> VaultChangedListener {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return VaultChangedListenerImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
+    }
+
+    public static func lower(_ value: VaultChangedListener) -> UInt64 {
+         if let rustImpl = value as? VaultChangedListenerImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VaultChangedListener {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: VaultChangedListener, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVaultChangedListener_lift(_ handle: UInt64) throws -> VaultChangedListener {
+    return try FfiConverterTypeVaultChangedListener.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeVaultChangedListener_lower(_ value: VaultChangedListener) -> UInt64 {
+    return FfiConverterTypeVaultChangedListener.lower(value)
+}
+
+
+
+
+
+
+/**
  * A base World ID identity which can be used to generate World ID Proofs for different credentials.
  *
  * Most essential primitive for World ID.
@@ -6882,6 +7182,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_authenticator_compute_credential_sub() != 11498) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_method_authenticator_danger_sign_challenge() != 11600) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_method_authenticator_generate_credential_blinding_factor_remote() != 39820) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -6975,6 +7278,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_credentialstore_merkle_cache_put() != 32651) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_method_credentialstore_set_vault_changed_listener() != 47638) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_method_credentialstore_storage_paths() != 17739) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -7033,6 +7339,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_storageprovider_paths() != 46848) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_vaultchangedlistener_on_vault_changed() != 25927) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_addressbook_generate_proof_context() != 32396) {
@@ -7145,6 +7454,7 @@ private let initializationResult: InitializationResult = {
     uniffiCallbackInitDeviceKeystore()
     uniffiCallbackInitLogger()
     uniffiCallbackInitStorageProvider()
+    uniffiCallbackInitVaultChangedListener()
     return InitializationResult.ok
 }()
 

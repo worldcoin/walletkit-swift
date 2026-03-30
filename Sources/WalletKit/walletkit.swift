@@ -1056,6 +1056,19 @@ public func FfiConverterTypeAtomicBlobStore_lower(_ value: AtomicBlobStore) -> U
 public protocol AuthenticatorProtocol: AnyObject, Sendable {
     
     /**
+     * Cancels a pending time-locked recovery agent update before the cooldown
+     * expires.
+     *
+     * Signs an EIP-712 `CancelRecoveryAgentUpdate` payload and submits it to
+     * the gateway. Returns the gateway request ID that can be used to poll
+     * status.
+     *
+     * # Errors
+     * Returns a network error if the gateway request fails.
+     */
+    func cancelRecoveryAgentUpdate() async throws  -> String
+    
+    /**
      * Compute the `sub` for a credential from the authenticator's leaf index and a `blinding_factor`.
      */
     func computeCredentialSub(blindingFactor: FieldElement)  -> FieldElement
@@ -1073,6 +1086,21 @@ public protocol AuthenticatorProtocol: AnyObject, Sendable {
      * May error if very unexpectedly the signing process fails. Not expected.
      */
     func dangerSignChallenge(challenge: Data) throws  -> Data
+    
+    /**
+     * Executes a pending recovery agent update after the 14-day cooldown has
+     * elapsed.
+     *
+     * This call is **permissionless** — no signature is required. The contract
+     * enforces the cooldown and will revert with
+     * `RecoveryAgentUpdateStillInCooldown` if called too early.
+     *
+     * Returns the gateway request ID that can be used to poll status.
+     *
+     * # Errors
+     * Returns a network error if the gateway request fails.
+     */
+    func executeRecoveryAgentUpdate() async throws  -> String
     
     /**
      * Generates a blinding factor for a Credential sub (through OPRF Nodes).
@@ -1103,6 +1131,24 @@ public protocol AuthenticatorProtocol: AnyObject, Sendable {
     func getPackedAccountDataRemote() async throws  -> Uint256
     
     /**
+     * Initiates a time-locked recovery agent update (14-day cooldown).
+     *
+     * Signs an EIP-712 `InitiateRecoveryAgentUpdate` payload and submits it to
+     * the gateway. Returns the gateway request ID that can be used to poll
+     * status.
+     *
+     * # Arguments
+     * * `new_recovery_agent` — the checksummed hex address of the new recovery
+     * agent (e.g. `"0x1234…"`).
+     *
+     * # Errors
+     * - Returns [`WalletKitError::InvalidInput`] if `new_recovery_agent` is not
+     * a valid address.
+     * - Returns a network error if the gateway request fails.
+     */
+    func initiateRecoveryAgentUpdate(newRecoveryAgent: String) async throws  -> String
+    
+    /**
      * Returns the leaf index for the holder's World ID.
      *
      * This is the index in the Merkle tree where the holder's World ID account is registered. It
@@ -1124,6 +1170,19 @@ public protocol AuthenticatorProtocol: AnyObject, Sendable {
      * and their pubkey id/commitment.
      */
     func packedAccountData()  -> Uint256
+    
+    /**
+     * Permanently destroys all credential storage data.
+     *
+     * Removes the encryption keys, vault database, and cache database.
+     * After this call the authenticator can no longer generate proofs or
+     * access stored credentials. Intended for logout or account deletion.
+     *
+     * # Errors
+     *
+     * Returns an error if the storage destruction fails.
+     */
+    func destroyStorage() throws 
     
     /**
      * Initializes storage using the authenticator's leaf index.
@@ -1240,6 +1299,34 @@ public static func initWithDefaults(seed: Data, rpcUrl: String?, environment: En
 
     
     /**
+     * Cancels a pending time-locked recovery agent update before the cooldown
+     * expires.
+     *
+     * Signs an EIP-712 `CancelRecoveryAgentUpdate` payload and submits it to
+     * the gateway. Returns the gateway request ID that can be used to poll
+     * status.
+     *
+     * # Errors
+     * Returns a network error if the gateway request fails.
+     */
+open func cancelRecoveryAgentUpdate()async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_authenticator_cancel_recovery_agent_update(
+                    self.uniffiCloneHandle()
+                    
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeWalletKitError_lift
+        )
+}
+    
+    /**
      * Compute the `sub` for a credential from the authenticator's leaf index and a `blinding_factor`.
      */
 open func computeCredentialSub(blindingFactor: FieldElement) -> FieldElement  {
@@ -1270,6 +1357,36 @@ open func dangerSignChallenge(challenge: Data)throws  -> Data  {
         FfiConverterData.lower(challenge),$0
     )
 })
+}
+    
+    /**
+     * Executes a pending recovery agent update after the 14-day cooldown has
+     * elapsed.
+     *
+     * This call is **permissionless** — no signature is required. The contract
+     * enforces the cooldown and will revert with
+     * `RecoveryAgentUpdateStillInCooldown` if called too early.
+     *
+     * Returns the gateway request ID that can be used to poll status.
+     *
+     * # Errors
+     * Returns a network error if the gateway request fails.
+     */
+open func executeRecoveryAgentUpdate()async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_authenticator_execute_recovery_agent_update(
+                    self.uniffiCloneHandle()
+                    
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeWalletKitError_lift
+        )
 }
     
     /**
@@ -1346,6 +1463,39 @@ open func getPackedAccountDataRemote()async throws  -> Uint256  {
 }
     
     /**
+     * Initiates a time-locked recovery agent update (14-day cooldown).
+     *
+     * Signs an EIP-712 `InitiateRecoveryAgentUpdate` payload and submits it to
+     * the gateway. Returns the gateway request ID that can be used to poll
+     * status.
+     *
+     * # Arguments
+     * * `new_recovery_agent` — the checksummed hex address of the new recovery
+     * agent (e.g. `"0x1234…"`).
+     *
+     * # Errors
+     * - Returns [`WalletKitError::InvalidInput`] if `new_recovery_agent` is not
+     * a valid address.
+     * - Returns a network error if the gateway request fails.
+     */
+open func initiateRecoveryAgentUpdate(newRecoveryAgent: String)async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_authenticator_initiate_recovery_agent_update(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(newRecoveryAgent)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeWalletKitError_lift
+        )
+}
+    
+    /**
      * Returns the leaf index for the holder's World ID.
      *
      * This is the index in the Merkle tree where the holder's World ID account is registered. It
@@ -1384,6 +1534,24 @@ open func packedAccountData() -> Uint256  {
             self.uniffiCloneHandle(),$0
     )
 })
+}
+    
+    /**
+     * Permanently destroys all credential storage data.
+     *
+     * Removes the encryption keys, vault database, and cache database.
+     * After this call the authenticator can no longer generate proofs or
+     * access stored credentials. Intended for logout or account deletion.
+     *
+     * # Errors
+     *
+     * Returns an error if the storage destruction fails.
+     */
+open func destroyStorage()throws   {try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+    uniffi_walletkit_core_fn_method_authenticator_destroy_storage(
+            self.uniffiCloneHandle(),$0
+    )
+}
 }
     
     /**
@@ -1460,13 +1628,11 @@ public func FfiConverterTypeAuthenticator_lower(_ value: Authenticator) -> UInt6
 public protocol CredentialProtocol: AnyObject, Sendable {
     
     /**
-     * Returns the credential's `associated_data_hash` field element.
+     * Returns the credential's `associated_data_commitment` field element.
      *
-     * This is a Poseidon2 commitment to the associated data (e.g. a PCP archive)
-     * set by the issuer at issuance time. Returns `FieldElement::ZERO` if no
-     * associated data was committed to.
+     * The commitment scheme is issuer-defined.
      */
-    func associatedDataHash()  -> FieldElement
+    func associatedDataCommitment()  -> FieldElement
     
     /**
      * Returns the credential's expiration timestamp (unix seconds).
@@ -1559,15 +1725,13 @@ public static func fromBytes(bytes: Data)throws  -> Credential  {
 
     
     /**
-     * Returns the credential's `associated_data_hash` field element.
+     * Returns the credential's `associated_data_commitment` field element.
      *
-     * This is a Poseidon2 commitment to the associated data (e.g. a PCP archive)
-     * set by the issuer at issuance time. Returns `FieldElement::ZERO` if no
-     * associated data was committed to.
+     * The commitment scheme is issuer-defined.
      */
-open func associatedDataHash() -> FieldElement  {
+open func associatedDataCommitment() -> FieldElement  {
     return try!  FfiConverterTypeFieldElement_lift(try! rustCall() {
-    uniffi_walletkit_core_fn_method_credential_associated_data_hash(
+    uniffi_walletkit_core_fn_method_credential_associated_data_commitment(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -1692,6 +1856,23 @@ public protocol CredentialStoreProtocol: AnyObject, Sendable {
     func deleteCredential(credentialId: UInt64) throws 
     
     /**
+     * Permanently destroys all credential storage data.
+     *
+     * This removes the encryption key envelope, the vault database, and the
+     * cache database. After this call the store is left in an uninitialized
+     * state — any subsequent operation (other than re-initialization) will
+     * return [`StorageError::NotInitialized`].
+     *
+     * Intended for use when the user logs out or deletes their account.
+     *
+     * # Errors
+     *
+     * Returns an error if the storage lock cannot be acquired or the key
+     * envelope cannot be deleted from the blob store.
+     */
+    func destroyStorage() throws 
+    
+    /**
      * Exports the current vault as an in-memory plaintext (unencrypted)
      * `SQLite` database for backup.
      *
@@ -1709,7 +1890,6 @@ public protocol CredentialStoreProtocol: AnyObject, Sendable {
      *
      * The store must already be initialized via [`init`](Self::init).
      * Intended for restore on a fresh install where the vault is empty.
-     *
      * # Errors
      *
      * Returns an error if the store is not initialized or the import fails.
@@ -1921,6 +2101,28 @@ open func deleteCredential(credentialId: UInt64)throws   {try rustCallWithError(
 }
     
     /**
+     * Permanently destroys all credential storage data.
+     *
+     * This removes the encryption key envelope, the vault database, and the
+     * cache database. After this call the store is left in an uninitialized
+     * state — any subsequent operation (other than re-initialization) will
+     * return [`StorageError::NotInitialized`].
+     *
+     * Intended for use when the user logs out or deletes their account.
+     *
+     * # Errors
+     *
+     * Returns an error if the storage lock cannot be acquired or the key
+     * envelope cannot be deleted from the blob store.
+     */
+open func destroyStorage()throws   {try rustCallWithError(FfiConverterTypeStorageError_lift) {
+    uniffi_walletkit_core_fn_method_credentialstore_destroy_storage(
+            self.uniffiCloneHandle(),$0
+    )
+}
+}
+    
+    /**
      * Exports the current vault as an in-memory plaintext (unencrypted)
      * `SQLite` database for backup.
      *
@@ -1944,7 +2146,6 @@ open func exportVaultForBackup()throws  -> Data  {
      *
      * The store must already be initialized via [`init`](Self::init).
      * Intended for restore on a fresh install where the vault is empty.
-     *
      * # Errors
      *
      * Returns an error if the store is not initialized or the import fails.
@@ -4145,6 +4346,248 @@ public func FfiConverterTypeProofResponse_lower(_ value: ProofResponse) -> UInt6
 
 
 /**
+ * Client for registering and unregistering recovery agents with the `PoP` backend.
+ *
+ * Each instance is bound to a specific [`Environment`] (staging or production),
+ * which determines the backend URL used for all requests.
+ */
+public protocol RecoveryBindingManagerProtocol: AnyObject, Sendable {
+    
+    /**
+     * Registers a recovery agent for the given authenticator.
+     *
+     * # Arguments
+     *
+     * * `authenticator` — The authenticator whose signing key authorizes the request.
+     * * `leaf_index` — The authenticator's leaf index in the World ID Merkle tree.
+     * * `sub` — Hex-encoded subject identifier of the recovery agent to register.
+     *
+     * # Errors
+     *
+     * Returns an error if the challenge fetch, signing, or backend request fails,
+     * or if a recovery binding already exists ([`WalletKitError::RecoveryBindingAlreadyExists`]).
+     */
+    func bindRecoveryAgent(authenticator: Authenticator, leafIndex: UInt64, sub: String) async throws 
+    
+    /**
+     * Removes a previously registered recovery agent.
+     *
+     * # Arguments
+     *
+     * * `authenticator` — The authenticator whose signing key authorizes the request.
+     * * `leaf_index` — The authenticator's leaf index in the World ID Merkle tree.
+     * * `sub` — Hex-encoded subject identifier of the recovery agent to remove.
+     *
+     * # Errors
+     *
+     * Returns an error if the challenge fetch, signing, or backend request fails,
+     * or if the account does not exist ([`WalletKitError::AccountDoesNotExist`]).
+     */
+    func unbindRecoveryAgent(authenticator: Authenticator, leafIndex: UInt64, sub: String) async throws 
+    
+}
+/**
+ * Client for registering and unregistering recovery agents with the `PoP` backend.
+ *
+ * Each instance is bound to a specific [`Environment`] (staging or production),
+ * which determines the backend URL used for all requests.
+ */
+open class RecoveryBindingManager: RecoveryBindingManagerProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_recoverybindingmanager(self.handle, $0) }
+    }
+    /**
+     * Creates a new `RecoveryBindingManager` for the specified environment.
+     *
+     * # Errors
+     *
+     * Returns an error if the HTTP client cannot be built.
+     */
+public convenience init(environment: Environment)throws  {
+    let handle =
+        try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+    uniffi_walletkit_core_fn_constructor_recoverybindingmanager_new(
+        FfiConverterTypeEnvironment_lower(environment),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_recoverybindingmanager(handle, $0) }
+    }
+
+    
+    /**
+     * Creates a new `RecoveryBindingManager` for the specified base URL and user agent.
+     *
+     * # Errors
+     *
+     * Returns an error if the HTTP client cannot be built.
+     */
+public static func newWithBaseUrl(baseUrl: String)throws  -> RecoveryBindingManager  {
+    return try  FfiConverterTypeRecoveryBindingManager_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+    uniffi_walletkit_core_fn_constructor_recoverybindingmanager_new_with_base_url(
+        FfiConverterString.lower(baseUrl),$0
+    )
+})
+}
+    
+
+    
+    /**
+     * Registers a recovery agent for the given authenticator.
+     *
+     * # Arguments
+     *
+     * * `authenticator` — The authenticator whose signing key authorizes the request.
+     * * `leaf_index` — The authenticator's leaf index in the World ID Merkle tree.
+     * * `sub` — Hex-encoded subject identifier of the recovery agent to register.
+     *
+     * # Errors
+     *
+     * Returns an error if the challenge fetch, signing, or backend request fails,
+     * or if a recovery binding already exists ([`WalletKitError::RecoveryBindingAlreadyExists`]).
+     */
+open func bindRecoveryAgent(authenticator: Authenticator, leafIndex: UInt64, sub: String)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_recoverybindingmanager_bind_recovery_agent(
+                    self.uniffiCloneHandle(),
+                    FfiConverterTypeAuthenticator_lower(authenticator),FfiConverterUInt64.lower(leafIndex),FfiConverterString.lower(sub)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_void,
+            completeFunc: ffi_walletkit_core_rust_future_complete_void,
+            freeFunc: ffi_walletkit_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeWalletKitError_lift
+        )
+}
+    
+    /**
+     * Removes a previously registered recovery agent.
+     *
+     * # Arguments
+     *
+     * * `authenticator` — The authenticator whose signing key authorizes the request.
+     * * `leaf_index` — The authenticator's leaf index in the World ID Merkle tree.
+     * * `sub` — Hex-encoded subject identifier of the recovery agent to remove.
+     *
+     * # Errors
+     *
+     * Returns an error if the challenge fetch, signing, or backend request fails,
+     * or if the account does not exist ([`WalletKitError::AccountDoesNotExist`]).
+     */
+open func unbindRecoveryAgent(authenticator: Authenticator, leafIndex: UInt64, sub: String)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_recoverybindingmanager_unbind_recovery_agent(
+                    self.uniffiCloneHandle(),
+                    FfiConverterTypeAuthenticator_lower(authenticator),FfiConverterUInt64.lower(leafIndex),FfiConverterString.lower(sub)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_void,
+            completeFunc: ffi_walletkit_core_rust_future_complete_void,
+            freeFunc: ffi_walletkit_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeWalletKitError_lift
+        )
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRecoveryBindingManager: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = RecoveryBindingManager
+
+    public static func lift(_ handle: UInt64) throws -> RecoveryBindingManager {
+        return RecoveryBindingManager(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: RecoveryBindingManager) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RecoveryBindingManager {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: RecoveryBindingManager, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRecoveryBindingManager_lift(_ handle: UInt64) throws -> RecoveryBindingManager {
+    return try FfiConverterTypeRecoveryBindingManager.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRecoveryBindingManager_lower(_ value: RecoveryBindingManager) -> UInt64 {
+    return FfiConverterTypeRecoveryBindingManager.lower(value)
+}
+
+
+
+
+
+
+/**
  * Paths for credential storage artifacts under `<root>/worldid`.
  */
 public protocol StoragePathsProtocol: AnyObject, Sendable {
@@ -5471,6 +5914,77 @@ public func FfiConverterTypeCredentialRecord_lower(_ value: CredentialRecord) ->
 
 
 /**
+ * Request payload for registering or unregistering a recovery binding.
+ *
+ * Serialized as JSON with `leafIndex` (camelCase) to match the `PoP` backend API.
+ */
+public struct ManageRecoveryBindingRequest: Equatable, Hashable {
+    /**
+     * Hex-encoded subject identifier of the recovery binding.
+     */
+    public var sub: String
+    /**
+     * The authenticator's leaf index in the World ID Merkle tree.
+     */
+    public var leafIndex: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Hex-encoded subject identifier of the recovery binding.
+         */sub: String, 
+        /**
+         * The authenticator's leaf index in the World ID Merkle tree.
+         */leafIndex: UInt64) {
+        self.sub = sub
+        self.leafIndex = leafIndex
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ManageRecoveryBindingRequest: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeManageRecoveryBindingRequest: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ManageRecoveryBindingRequest {
+        return
+            try ManageRecoveryBindingRequest(
+                sub: FfiConverterString.read(from: &buf), 
+                leafIndex: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ManageRecoveryBindingRequest, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.sub, into: &buf)
+        FfiConverterUInt64.write(value.leafIndex, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeManageRecoveryBindingRequest_lift(_ buf: RustBuffer) throws -> ManageRecoveryBindingRequest {
+    return try FfiConverterTypeManageRecoveryBindingRequest.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeManageRecoveryBindingRequest_lower(_ value: ManageRecoveryBindingRequest) -> RustBuffer {
+    return FfiConverterTypeManageRecoveryBindingRequest.lower(value)
+}
+
+
+/**
  * Replay guard result.
  */
 public struct ReplayGuardResult: Equatable, Hashable {
@@ -6625,6 +7139,14 @@ public enum WalletKitError: Swift.Error, Equatable, Hashable, Foundation.Localiz
          * The details of the error
          */error: String
     )
+    /**
+     * The recovery binding already exists
+     */
+    case RecoveryBindingAlreadyExists
+    /**
+     * The recovery binding does not exist
+     */
+    case RecoveryBindingDoesNotExist
 
     
 
@@ -6696,6 +7218,8 @@ public struct FfiConverterTypeWalletKitError: FfiConverterRustBuffer {
         case 18: return .Generic(
             error: try FfiConverterString.read(from: &buf)
             )
+        case 19: return .RecoveryBindingAlreadyExists
+        case 20: return .RecoveryBindingDoesNotExist
 
          default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -6793,6 +7317,14 @@ public struct FfiConverterTypeWalletKitError: FfiConverterRustBuffer {
             writeInt(&buf, Int32(18))
             FfiConverterString.write(error, into: &buf)
             
+        
+        case .RecoveryBindingAlreadyExists:
+            writeInt(&buf, Int32(19))
+        
+        
+        case .RecoveryBindingDoesNotExist:
+            writeInt(&buf, Int32(20))
+        
         }
     }
 }
@@ -7179,10 +7711,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_func_cache_embedded_groth16_material() != 10840) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_method_authenticator_cancel_recovery_agent_update() != 27625) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_method_authenticator_compute_credential_sub() != 11498) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_authenticator_danger_sign_challenge() != 11600) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_authenticator_execute_recovery_agent_update() != 16326) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_authenticator_generate_credential_blinding_factor_remote() != 39820) {
@@ -7194,6 +7732,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_authenticator_get_packed_account_data_remote() != 55961) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_method_authenticator_initiate_recovery_agent_update() != 49102) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_method_authenticator_leaf_index() != 2189) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -7203,13 +7744,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_authenticator_packed_account_data() != 38096) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_method_authenticator_destroy_storage() != 59925) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_method_authenticator_init_storage() != 17038) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_initializingauthenticator_poll_status() != 61377) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credential_associated_data_hash() != 8261) {
+    if (uniffi_walletkit_core_checksum_method_credential_associated_data_commitment() != 56904) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_credential_expires_at() != 5794) {
@@ -7225,6 +7769,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_fieldelement_to_hex_string() != 48989) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_bind_recovery_agent() != 8337) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_unbind_recovery_agent() != 43096) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_tfhnfcissuer_refresh_nfc_credential() != 55554) {
@@ -7260,10 +7810,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_credentialstore_delete_credential() != 48725) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_method_credentialstore_destroy_storage() != 59451) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_method_credentialstore_export_vault_for_backup() != 8389) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_import_vault_from_backup() != 13143) {
+    if (uniffi_walletkit_core_checksum_method_credentialstore_import_vault_from_backup() != 37931) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_credentialstore_init() != 6887) {
@@ -7405,6 +7958,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_fieldelement_try_from_hex_string() != 7854) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_constructor_recoverybindingmanager_new() != 15493) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_constructor_recoverybindingmanager_new_with_base_url() != 2756) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_tfhnfcissuer_new() != 15498) {

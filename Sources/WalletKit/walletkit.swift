@@ -5985,6 +5985,91 @@ public func FfiConverterTypeManageRecoveryBindingRequest_lower(_ value: ManageRe
 
 
 /**
+ * Identity material derived from a seed for use during account recovery.
+ *
+ * During account recovery the user generates new keys from a seed, but those
+ * keys do not yet exist on-chain. The three values in this record must be
+ * submitted on-chain during the recovery transaction.
+ *
+ * All fields are hex-encoded strings suitable for direct use in API requests.
+ */
+public struct RecoveryData: Equatable, Hashable {
+    /**
+     * Checksummed hex Ethereum address of the on-chain signer.
+     */
+    public var authenticatorAddress: String
+    /**
+     * Hex-encoded U256 compressed `EdDSA` public key of the off-chain signer.
+     */
+    public var authenticatorPubkey: String
+    /**
+     * Hex-encoded U256 Poseidon2 hash commitment over the authenticator key set.
+     */
+    public var offchainSignerCommitment: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Checksummed hex Ethereum address of the on-chain signer.
+         */authenticatorAddress: String, 
+        /**
+         * Hex-encoded U256 compressed `EdDSA` public key of the off-chain signer.
+         */authenticatorPubkey: String, 
+        /**
+         * Hex-encoded U256 Poseidon2 hash commitment over the authenticator key set.
+         */offchainSignerCommitment: String) {
+        self.authenticatorAddress = authenticatorAddress
+        self.authenticatorPubkey = authenticatorPubkey
+        self.offchainSignerCommitment = offchainSignerCommitment
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension RecoveryData: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRecoveryData: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RecoveryData {
+        return
+            try RecoveryData(
+                authenticatorAddress: FfiConverterString.read(from: &buf), 
+                authenticatorPubkey: FfiConverterString.read(from: &buf), 
+                offchainSignerCommitment: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RecoveryData, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.authenticatorAddress, into: &buf)
+        FfiConverterString.write(value.authenticatorPubkey, into: &buf)
+        FfiConverterString.write(value.offchainSignerCommitment, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRecoveryData_lift(_ buf: RustBuffer) throws -> RecoveryData {
+    return try FfiConverterTypeRecoveryData.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRecoveryData_lower(_ value: RecoveryData) -> RustBuffer {
+    return FfiConverterTypeRecoveryData.lower(value)
+}
+
+
+/**
  * Replay guard result.
  */
 public struct ReplayGuardResult: Equatable, Hashable {
@@ -7639,6 +7724,21 @@ fileprivate func uniffiFutureContinuationCallback(handle: UInt64, pollResult: In
     }
 }
 /**
+ * Derives recovery data from a 32-byte seed.
+ *
+ * This is the foreign-bindings entrypoint for recovery data generation.
+ *
+ * # Errors
+ * Returns [`WalletKitError`] if the seed is invalid or serialization fails.
+ */
+public func recoveryDataFromSeed(seed: Data)throws  -> RecoveryData  {
+    return try  FfiConverterTypeRecoveryData_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+    uniffi_walletkit_core_fn_func_recovery_data_from_seed(
+        FfiConverterData.lower(seed),$0
+    )
+})
+}
+/**
  * Emits a message at the given level through `WalletKit`'s tracing pipeline.
  *
  * Useful for verifying that the logging bridge is wired up correctly.
@@ -7701,6 +7801,9 @@ private let initializationResult: InitializationResult = {
     let scaffolding_contract_version = ffi_walletkit_core_uniffi_contract_version()
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
+    }
+    if (uniffi_walletkit_core_checksum_func_recovery_data_from_seed() != 17579) {
+        return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_func_emit_log() != 60718) {
         return InitializationResult.apiChecksumMismatch

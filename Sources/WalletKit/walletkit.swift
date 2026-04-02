@@ -1088,6 +1088,34 @@ public protocol AuthenticatorProtocol: AnyObject, Sendable {
     func dangerSignChallenge(challenge: Data) throws  -> Data
     
     /**
+     * Signs the EIP-712 `InitiateRecoveryAgentUpdate` payload and returns the
+     * raw signature bytes and signing nonce without submitting anything to the
+     * gateway.
+     *
+     * This is the signing-only counterpart of [`Self::initiate_recovery_agent_update`].
+     * Callers can use the returned bytes to build and submit the gateway request
+     * themselves.
+     *
+     * # Warning
+     * This method uses the `onchain_signer` (secp256k1 ECDSA) and produces a
+     * recoverable signature. Any holder of the signature together with the
+     * EIP-712 parameters can call `ecrecover` to obtain the `onchain_address`,
+     * which can then be looked up in the registry to derive the user's
+     * `leaf_index`. Only expose the output to trusted parties (e.g. a Recovery
+     * Agent).
+     *
+     * # Arguments
+     * * `new_recovery_agent` — the checksummed hex address of the new recovery
+     * agent (e.g. `"0x1234…"`).
+     *
+     * # Errors
+     * - Returns [`WalletKitError::InvalidInput`] if `new_recovery_agent` is not
+     * a valid address.
+     * - Returns an error if the nonce fetch or signing step fails.
+     */
+    func dangerSignInitiateRecoveryAgentUpdate(newRecoveryAgent: String) async throws  -> RecoveryUpdateSignature
+    
+    /**
      * Executes a pending recovery agent update after the 14-day cooldown has
      * elapsed.
      *
@@ -1357,6 +1385,49 @@ open func dangerSignChallenge(challenge: Data)throws  -> Data  {
         FfiConverterData.lower(challenge),$0
     )
 })
+}
+    
+    /**
+     * Signs the EIP-712 `InitiateRecoveryAgentUpdate` payload and returns the
+     * raw signature bytes and signing nonce without submitting anything to the
+     * gateway.
+     *
+     * This is the signing-only counterpart of [`Self::initiate_recovery_agent_update`].
+     * Callers can use the returned bytes to build and submit the gateway request
+     * themselves.
+     *
+     * # Warning
+     * This method uses the `onchain_signer` (secp256k1 ECDSA) and produces a
+     * recoverable signature. Any holder of the signature together with the
+     * EIP-712 parameters can call `ecrecover` to obtain the `onchain_address`,
+     * which can then be looked up in the registry to derive the user's
+     * `leaf_index`. Only expose the output to trusted parties (e.g. a Recovery
+     * Agent).
+     *
+     * # Arguments
+     * * `new_recovery_agent` — the checksummed hex address of the new recovery
+     * agent (e.g. `"0x1234…"`).
+     *
+     * # Errors
+     * - Returns [`WalletKitError::InvalidInput`] if `new_recovery_agent` is not
+     * a valid address.
+     * - Returns an error if the nonce fetch or signing step fails.
+     */
+open func dangerSignInitiateRecoveryAgentUpdate(newRecoveryAgent: String)async throws  -> RecoveryUpdateSignature  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_authenticator_danger_sign_initiate_recovery_agent_update(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(newRecoveryAgent)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeRecoveryUpdateSignature_lift,
+            errorHandler: FfiConverterTypeWalletKitError_lift
+        )
 }
     
     /**
@@ -1936,8 +2007,8 @@ public protocol CredentialStoreProtocol: AnyObject, Sendable {
     func merkleCachePut(proofBytes: Data, now: UInt64, ttlSeconds: UInt64) throws 
     
     /**
-     * Registers a listener that is called after every successful vault
-     * mutation (store, delete, purge).
+     * Registers a listener that is called after a credential is added or
+     * removed.
      *
      * Only one listener can be active at a time — calling this replaces any
      * previously registered listener. The previous delivery thread shuts down
@@ -2228,8 +2299,8 @@ open func merkleCachePut(proofBytes: Data, now: UInt64, ttlSeconds: UInt64)throw
 }
     
     /**
-     * Registers a listener that is called after every successful vault
-     * mutation (store, delete, purge).
+     * Registers a listener that is called after a credential is added or
+     * removed.
      *
      * Only one listener can be active at a time — calling this replaces any
      * previously registered listener. The previous delivery thread shuts down
@@ -5311,16 +5382,19 @@ public func FfiConverterTypeTfhNfcIssuer_lower(_ value: TfhNfcIssuer) -> UInt64 
 
 
 /**
- * Listener notified when the credential vault is mutated.
+ * Listener notified when the credential vault contents change and a new
+ * backup is needed.
  *
  * Register via [`super::CredentialStore::set_vault_changed_listener`]. The
  * callback is delivered on a dedicated background thread to avoid re-entering
  * the `UniFFI` call stack (see `logger.rs` for rationale).
  *
+ * This is only called when individual credentials are added or removed.
+ *
  * # Expected usage
  *
- * The host app should treat this as a trigger to take actions when the vault
- * state has mutated. It should contain synchronous actions only.
+ * The host app should treat this as a trigger to schedule a backup of the
+ * vault. It should contain synchronous actions only.
  *
  * # Safety
  *
@@ -5332,22 +5406,25 @@ public func FfiConverterTypeTfhNfcIssuer_lower(_ value: TfhNfcIssuer) -> UInt64 
 public protocol VaultChangedListener: AnyObject, Sendable {
     
     /**
-     * Called after a successful vault mutation (store, delete, purge).
+     * Called after a credential is added or removed.
      */
     func onVaultChanged() 
     
 }
 /**
- * Listener notified when the credential vault is mutated.
+ * Listener notified when the credential vault contents change and a new
+ * backup is needed.
  *
  * Register via [`super::CredentialStore::set_vault_changed_listener`]. The
  * callback is delivered on a dedicated background thread to avoid re-entering
  * the `UniFFI` call stack (see `logger.rs` for rationale).
  *
+ * This is only called when individual credentials are added or removed.
+ *
  * # Expected usage
  *
- * The host app should treat this as a trigger to take actions when the vault
- * state has mutated. It should contain synchronous actions only.
+ * The host app should treat this as a trigger to schedule a backup of the
+ * vault. It should contain synchronous actions only.
  *
  * # Safety
  *
@@ -5410,7 +5487,7 @@ open class VaultChangedListenerImpl: VaultChangedListener, @unchecked Sendable {
 
     
     /**
-     * Called after a successful vault mutation (store, delete, purge).
+     * Called after a credential is added or removed.
      */
 open func onVaultChanged()  {try! rustCall() {
     uniffi_walletkit_core_fn_method_vaultchangedlistener_on_vault_changed(
@@ -6066,6 +6143,83 @@ public func FfiConverterTypeRecoveryData_lift(_ buf: RustBuffer) throws -> Recov
 #endif
 public func FfiConverterTypeRecoveryData_lower(_ value: RecoveryData) -> RustBuffer {
     return FfiConverterTypeRecoveryData.lower(value)
+}
+
+
+/**
+ * The signature and signing nonce returned by
+ * [`Authenticator::danger_sign_initiate_recovery_agent_update`].
+ *
+ * `UniFFI` does not support returning bare tuples across the FFI boundary, so
+ * the two values are bundled in this record type.
+ */
+public struct RecoveryUpdateSignature: Equatable, Hashable {
+    /**
+     * Raw bytes of the secp256k1 ECDSA signature over the EIP-712
+     * `InitiateRecoveryAgentUpdate` payload.
+     */
+    public var signature: Data
+    /**
+     * The EIP-712 signing nonce that was used; must be included in the
+     * gateway request alongside the signature.
+     */
+    public var nonce: Uint256
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Raw bytes of the secp256k1 ECDSA signature over the EIP-712
+         * `InitiateRecoveryAgentUpdate` payload.
+         */signature: Data, 
+        /**
+         * The EIP-712 signing nonce that was used; must be included in the
+         * gateway request alongside the signature.
+         */nonce: Uint256) {
+        self.signature = signature
+        self.nonce = nonce
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension RecoveryUpdateSignature: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRecoveryUpdateSignature: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RecoveryUpdateSignature {
+        return
+            try RecoveryUpdateSignature(
+                signature: FfiConverterData.read(from: &buf), 
+                nonce: FfiConverterTypeUint256.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RecoveryUpdateSignature, into buf: inout [UInt8]) {
+        FfiConverterData.write(value.signature, into: &buf)
+        FfiConverterTypeUint256.write(value.nonce, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRecoveryUpdateSignature_lift(_ buf: RustBuffer) throws -> RecoveryUpdateSignature {
+    return try FfiConverterTypeRecoveryUpdateSignature.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRecoveryUpdateSignature_lower(_ value: RecoveryUpdateSignature) -> RustBuffer {
+    return FfiConverterTypeRecoveryUpdateSignature.lower(value)
 }
 
 
@@ -7232,6 +7386,15 @@ public enum WalletKitError: Swift.Error, Equatable, Hashable, Foundation.Localiz
      * The recovery binding does not exist
      */
     case RecoveryBindingDoesNotExist
+    /**
+     * The NFC uniqueness service rejected the request with a permanent error
+     * that will not resolve on retry (e.g. expired document).
+     */
+    case NfcNonRetryable(
+        /**
+         * The error code from the NFC service (e.g. `document_expired`)
+         */errorCode: String
+    )
 
     
 
@@ -7305,6 +7468,9 @@ public struct FfiConverterTypeWalletKitError: FfiConverterRustBuffer {
             )
         case 19: return .RecoveryBindingAlreadyExists
         case 20: return .RecoveryBindingDoesNotExist
+        case 21: return .NfcNonRetryable(
+            errorCode: try FfiConverterString.read(from: &buf)
+            )
 
          default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -7410,6 +7576,11 @@ public struct FfiConverterTypeWalletKitError: FfiConverterRustBuffer {
         case .RecoveryBindingDoesNotExist:
             writeInt(&buf, Int32(20))
         
+        
+        case let .NfcNonRetryable(errorCode):
+            writeInt(&buf, Int32(21))
+            FfiConverterString.write(errorCode, into: &buf)
+            
         }
     }
 }
@@ -7823,6 +7994,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_authenticator_danger_sign_challenge() != 11600) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_method_authenticator_danger_sign_initiate_recovery_agent_update() != 54769) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_method_authenticator_execute_recovery_agent_update() != 16326) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -7934,7 +8108,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_credentialstore_merkle_cache_put() != 32651) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_set_vault_changed_listener() != 47638) {
+    if (uniffi_walletkit_core_checksum_method_credentialstore_set_vault_changed_listener() != 9088) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_credentialstore_storage_paths() != 17739) {
@@ -7997,7 +8171,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_storageprovider_paths() != 46848) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_vaultchangedlistener_on_vault_changed() != 25927) {
+    if (uniffi_walletkit_core_checksum_method_vaultchangedlistener_on_vault_changed() != 30325) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_addressbook_generate_proof_context() != 32396) {

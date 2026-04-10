@@ -1989,24 +1989,6 @@ public protocol CredentialStoreProtocol: AnyObject, Sendable {
     func listCredentials(issuerSchemaId: UInt64?, now: UInt64) throws  -> [CredentialRecord]
     
     /**
-     * Fetches a cached Merkle proof if it remains valid beyond `valid_before`.
-     *
-     * # Errors
-     *
-     * Returns an error if the cache lookup fails.
-     */
-    func merkleCacheGet(validUntil: UInt64) throws  -> Data?
-    
-    /**
-     * Inserts a cached Merkle proof with a TTL.
-     *
-     * # Errors
-     *
-     * Returns an error if the cache insert fails.
-     */
-    func merkleCachePut(proofBytes: Data, now: UInt64, ttlSeconds: UInt64) throws 
-    
-    /**
      * Registers a listener that is called after a credential is added or
      * removed.
      *
@@ -2263,39 +2245,6 @@ open func listCredentials(issuerSchemaId: UInt64?, now: UInt64)throws  -> [Crede
         FfiConverterUInt64.lower(now),$0
     )
 })
-}
-    
-    /**
-     * Fetches a cached Merkle proof if it remains valid beyond `valid_before`.
-     *
-     * # Errors
-     *
-     * Returns an error if the cache lookup fails.
-     */
-open func merkleCacheGet(validUntil: UInt64)throws  -> Data?  {
-    return try  FfiConverterOptionData.lift(try rustCallWithError(FfiConverterTypeStorageError_lift) {
-    uniffi_walletkit_core_fn_method_credentialstore_merkle_cache_get(
-            self.uniffiCloneHandle(),
-        FfiConverterUInt64.lower(validUntil),$0
-    )
-})
-}
-    
-    /**
-     * Inserts a cached Merkle proof with a TTL.
-     *
-     * # Errors
-     *
-     * Returns an error if the cache insert fails.
-     */
-open func merkleCachePut(proofBytes: Data, now: UInt64, ttlSeconds: UInt64)throws   {try rustCallWithError(FfiConverterTypeStorageError_lift) {
-    uniffi_walletkit_core_fn_method_credentialstore_merkle_cache_put(
-            self.uniffiCloneHandle(),
-        FfiConverterData.lower(proofBytes),
-        FfiConverterUInt64.lower(now),
-        FfiConverterUInt64.lower(ttlSeconds),$0
-    )
-}
 }
     
     /**
@@ -4430,15 +4379,29 @@ public protocol RecoveryBindingManagerProtocol: AnyObject, Sendable {
      * # Arguments
      *
      * * `authenticator` — The authenticator whose signing key authorizes the request.
-     * * `leaf_index` — The authenticator's leaf index in the World ID Merkle tree.
      * * `sub` — Hex-encoded subject identifier of the recovery agent to register.
+     * * `recovery_agent_address` — The checksummed hex address of the new recovery agent (e.g. `"0x1234…"`).
      *
      * # Errors
      *
      * Returns an error if the challenge fetch, signing, or backend request fails,
      * or if a recovery binding already exists ([`WalletKitError::RecoveryBindingAlreadyExists`]).
      */
-    func bindRecoveryAgent(authenticator: Authenticator, leafIndex: UInt64, sub: String) async throws 
+    func bindRecoveryAgent(authenticator: Authenticator, sub: String, recoveryAgentAddress: String) async throws 
+    
+    /**
+     * Fetches a recovery binding via `GET /api/v1/recovery-binding`.
+     *
+     * # Arguments
+     *
+     * * `leaf_index` — The authenticator's leaf index in the World ID Merkle tree.
+     * # Errors
+     *
+     * * [`WalletKitError::NetworkError`] — non-success HTTP status.
+     * * [`WalletKitError::SerializationError`] — response body is not valid JSON.
+     * * [`WalletKitError::RecoveryBindingDoesNotExist`] — HTTP 404 (no binding found).
+     */
+    func getRecoveryBinding(leafIndex: UInt64) async throws  -> RecoveryBinding
     
     /**
      * Removes a previously registered recovery agent.
@@ -4446,7 +4409,6 @@ public protocol RecoveryBindingManagerProtocol: AnyObject, Sendable {
      * # Arguments
      *
      * * `authenticator` — The authenticator whose signing key authorizes the request.
-     * * `leaf_index` — The authenticator's leaf index in the World ID Merkle tree.
      * * `sub` — Hex-encoded subject identifier of the recovery agent to remove.
      *
      * # Errors
@@ -4454,7 +4416,7 @@ public protocol RecoveryBindingManagerProtocol: AnyObject, Sendable {
      * Returns an error if the challenge fetch, signing, or backend request fails,
      * or if the account does not exist ([`WalletKitError::AccountDoesNotExist`]).
      */
-    func unbindRecoveryAgent(authenticator: Authenticator, leafIndex: UInt64, sub: String) async throws 
+    func unbindRecoveryAgent(authenticator: Authenticator, sub: String) async throws 
     
 }
 /**
@@ -4552,21 +4514,21 @@ public static func newWithBaseUrl(baseUrl: String)throws  -> RecoveryBindingMana
      * # Arguments
      *
      * * `authenticator` — The authenticator whose signing key authorizes the request.
-     * * `leaf_index` — The authenticator's leaf index in the World ID Merkle tree.
      * * `sub` — Hex-encoded subject identifier of the recovery agent to register.
+     * * `recovery_agent_address` — The checksummed hex address of the new recovery agent (e.g. `"0x1234…"`).
      *
      * # Errors
      *
      * Returns an error if the challenge fetch, signing, or backend request fails,
      * or if a recovery binding already exists ([`WalletKitError::RecoveryBindingAlreadyExists`]).
      */
-open func bindRecoveryAgent(authenticator: Authenticator, leafIndex: UInt64, sub: String)async throws   {
+open func bindRecoveryAgent(authenticator: Authenticator, sub: String, recoveryAgentAddress: String)async throws   {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_walletkit_core_fn_method_recoverybindingmanager_bind_recovery_agent(
                     self.uniffiCloneHandle(),
-                    FfiConverterTypeAuthenticator_lower(authenticator),FfiConverterUInt64.lower(leafIndex),FfiConverterString.lower(sub)
+                    FfiConverterTypeAuthenticator_lower(authenticator),FfiConverterString.lower(sub),FfiConverterString.lower(recoveryAgentAddress)
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_void,
@@ -4578,12 +4540,40 @@ open func bindRecoveryAgent(authenticator: Authenticator, leafIndex: UInt64, sub
 }
     
     /**
+     * Fetches a recovery binding via `GET /api/v1/recovery-binding`.
+     *
+     * # Arguments
+     *
+     * * `leaf_index` — The authenticator's leaf index in the World ID Merkle tree.
+     * # Errors
+     *
+     * * [`WalletKitError::NetworkError`] — non-success HTTP status.
+     * * [`WalletKitError::SerializationError`] — response body is not valid JSON.
+     * * [`WalletKitError::RecoveryBindingDoesNotExist`] — HTTP 404 (no binding found).
+     */
+open func getRecoveryBinding(leafIndex: UInt64)async throws  -> RecoveryBinding  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_recoverybindingmanager_get_recovery_binding(
+                    self.uniffiCloneHandle(),
+                    FfiConverterUInt64.lower(leafIndex)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeRecoveryBinding_lift,
+            errorHandler: FfiConverterTypeWalletKitError_lift
+        )
+}
+    
+    /**
      * Removes a previously registered recovery agent.
      *
      * # Arguments
      *
      * * `authenticator` — The authenticator whose signing key authorizes the request.
-     * * `leaf_index` — The authenticator's leaf index in the World ID Merkle tree.
      * * `sub` — Hex-encoded subject identifier of the recovery agent to remove.
      *
      * # Errors
@@ -4591,13 +4581,13 @@ open func bindRecoveryAgent(authenticator: Authenticator, leafIndex: UInt64, sub
      * Returns an error if the challenge fetch, signing, or backend request fails,
      * or if the account does not exist ([`WalletKitError::AccountDoesNotExist`]).
      */
-open func unbindRecoveryAgent(authenticator: Authenticator, leafIndex: UInt64, sub: String)async throws   {
+open func unbindRecoveryAgent(authenticator: Authenticator, sub: String)async throws   {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_walletkit_core_fn_method_recoverybindingmanager_unbind_recovery_agent(
                     self.uniffiCloneHandle(),
-                    FfiConverterTypeAuthenticator_lower(authenticator),FfiConverterUInt64.lower(leafIndex),FfiConverterString.lower(sub)
+                    FfiConverterTypeAuthenticator_lower(authenticator),FfiConverterString.lower(sub)
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_void,
@@ -6004,6 +5994,18 @@ public struct ManageRecoveryBindingRequest: Equatable, Hashable {
      * The authenticator's leaf index in the World ID Merkle tree.
      */
     public var leafIndex: UInt64
+    /**
+     * The signature of the recovery agent update.
+     */
+    public var signature: String
+    /**
+     * The nonce of the recovery agent update.
+     */
+    public var nonce: String
+    /**
+     * The checksummed hex address of the recovery agent (e.g. `"0x1234…"`).
+     */
+    public var recoveryAgent: String
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -6013,9 +6015,21 @@ public struct ManageRecoveryBindingRequest: Equatable, Hashable {
          */sub: String, 
         /**
          * The authenticator's leaf index in the World ID Merkle tree.
-         */leafIndex: UInt64) {
+         */leafIndex: UInt64, 
+        /**
+         * The signature of the recovery agent update.
+         */signature: String, 
+        /**
+         * The nonce of the recovery agent update.
+         */nonce: String, 
+        /**
+         * The checksummed hex address of the recovery agent (e.g. `"0x1234…"`).
+         */recoveryAgent: String) {
         self.sub = sub
         self.leafIndex = leafIndex
+        self.signature = signature
+        self.nonce = nonce
+        self.recoveryAgent = recoveryAgent
     }
 
     
@@ -6035,13 +6049,19 @@ public struct FfiConverterTypeManageRecoveryBindingRequest: FfiConverterRustBuff
         return
             try ManageRecoveryBindingRequest(
                 sub: FfiConverterString.read(from: &buf), 
-                leafIndex: FfiConverterUInt64.read(from: &buf)
+                leafIndex: FfiConverterUInt64.read(from: &buf), 
+                signature: FfiConverterString.read(from: &buf), 
+                nonce: FfiConverterString.read(from: &buf), 
+                recoveryAgent: FfiConverterString.read(from: &buf)
         )
     }
 
     public static func write(_ value: ManageRecoveryBindingRequest, into buf: inout [UInt8]) {
         FfiConverterString.write(value.sub, into: &buf)
         FfiConverterUInt64.write(value.leafIndex, into: &buf)
+        FfiConverterString.write(value.signature, into: &buf)
+        FfiConverterString.write(value.nonce, into: &buf)
+        FfiConverterString.write(value.recoveryAgent, into: &buf)
     }
 }
 
@@ -6058,6 +6078,143 @@ public func FfiConverterTypeManageRecoveryBindingRequest_lift(_ buf: RustBuffer)
 #endif
 public func FfiConverterTypeManageRecoveryBindingRequest_lower(_ value: ManageRecoveryBindingRequest) -> RustBuffer {
     return FfiConverterTypeManageRecoveryBindingRequest.lower(value)
+}
+
+
+/**
+ * Represents a recovery binding.
+ */
+public struct RecoveryBinding: Equatable, Hashable {
+    /**
+     * The hex address of the recovery agent (e.g. `"0x1234…"`).
+     */
+    public var recoveryAgent: String?
+    /**
+     * The hex address of the pending recovery agent (e.g. `"0x1234…"`).
+     */
+    public var pendingRecoveryAgent: String?
+    /**
+     * The timestamp of the recovery agent update in seconds since the Unix epoch.
+     */
+    public var executeAfter: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The hex address of the recovery agent (e.g. `"0x1234…"`).
+         */recoveryAgent: String?, 
+        /**
+         * The hex address of the pending recovery agent (e.g. `"0x1234…"`).
+         */pendingRecoveryAgent: String?, 
+        /**
+         * The timestamp of the recovery agent update in seconds since the Unix epoch.
+         */executeAfter: String?) {
+        self.recoveryAgent = recoveryAgent
+        self.pendingRecoveryAgent = pendingRecoveryAgent
+        self.executeAfter = executeAfter
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension RecoveryBinding: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRecoveryBinding: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RecoveryBinding {
+        return
+            try RecoveryBinding(
+                recoveryAgent: FfiConverterOptionString.read(from: &buf), 
+                pendingRecoveryAgent: FfiConverterOptionString.read(from: &buf), 
+                executeAfter: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RecoveryBinding, into buf: inout [UInt8]) {
+        FfiConverterOptionString.write(value.recoveryAgent, into: &buf)
+        FfiConverterOptionString.write(value.pendingRecoveryAgent, into: &buf)
+        FfiConverterOptionString.write(value.executeAfter, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRecoveryBinding_lift(_ buf: RustBuffer) throws -> RecoveryBinding {
+    return try FfiConverterTypeRecoveryBinding.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRecoveryBinding_lower(_ value: RecoveryBinding) -> RustBuffer {
+    return FfiConverterTypeRecoveryBinding.lower(value)
+}
+
+
+public struct RecoveryBindingResponse: Equatable, Hashable {
+    public var recoveryAgent: String?
+    public var pendingRecoveryAgent: String?
+    public var executeAfter: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(recoveryAgent: String?, pendingRecoveryAgent: String?, executeAfter: String?) {
+        self.recoveryAgent = recoveryAgent
+        self.pendingRecoveryAgent = pendingRecoveryAgent
+        self.executeAfter = executeAfter
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension RecoveryBindingResponse: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRecoveryBindingResponse: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RecoveryBindingResponse {
+        return
+            try RecoveryBindingResponse(
+                recoveryAgent: FfiConverterOptionString.read(from: &buf), 
+                pendingRecoveryAgent: FfiConverterOptionString.read(from: &buf), 
+                executeAfter: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RecoveryBindingResponse, into buf: inout [UInt8]) {
+        FfiConverterOptionString.write(value.recoveryAgent, into: &buf)
+        FfiConverterOptionString.write(value.pendingRecoveryAgent, into: &buf)
+        FfiConverterOptionString.write(value.executeAfter, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRecoveryBindingResponse_lift(_ buf: RustBuffer) throws -> RecoveryBindingResponse {
+    return try FfiConverterTypeRecoveryBindingResponse.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRecoveryBindingResponse_lower(_ value: RecoveryBindingResponse) -> RustBuffer {
+    return FfiConverterTypeRecoveryBindingResponse.lower(value)
 }
 
 
@@ -7387,6 +7544,13 @@ public enum WalletKitError: Swift.Error, Equatable, Hashable, Foundation.Localiz
      */
     case RecoveryBindingDoesNotExist
     /**
+     * The session ID computed for this proof does not match the expected session ID from the proof request.
+     *
+     * This indicates the `session_id` provided by the RP is invalid or compromised, as
+     * the only other failure option is OPRFs not having performed correct computations.
+     */
+    case SessionIdMismatch
+    /**
      * The NFC uniqueness service rejected the request with a permanent error
      * that will not resolve on retry (e.g. expired document).
      */
@@ -7468,7 +7632,8 @@ public struct FfiConverterTypeWalletKitError: FfiConverterRustBuffer {
             )
         case 19: return .RecoveryBindingAlreadyExists
         case 20: return .RecoveryBindingDoesNotExist
-        case 21: return .NfcNonRetryable(
+        case 21: return .SessionIdMismatch
+        case 22: return .NfcNonRetryable(
             errorCode: try FfiConverterString.read(from: &buf)
             )
 
@@ -7577,8 +7742,12 @@ public struct FfiConverterTypeWalletKitError: FfiConverterRustBuffer {
             writeInt(&buf, Int32(20))
         
         
-        case let .NfcNonRetryable(errorCode):
+        case .SessionIdMismatch:
             writeInt(&buf, Int32(21))
+        
+        
+        case let .NfcNonRetryable(errorCode):
+            writeInt(&buf, Int32(22))
             FfiConverterString.write(errorCode, into: &buf)
             
         }
@@ -8048,10 +8217,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_fieldelement_to_hex_string() != 48989) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_bind_recovery_agent() != 8337) {
+    if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_bind_recovery_agent() != 36320) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_unbind_recovery_agent() != 43096) {
+    if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_get_recovery_binding() != 11792) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_unbind_recovery_agent() != 41314) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_tfhnfcissuer_refresh_nfc_credential() != 55554) {
@@ -8100,12 +8272,6 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_credentialstore_list_credentials() != 46271) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_merkle_cache_get() != 47950) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_merkle_cache_put() != 32651) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_credentialstore_set_vault_changed_listener() != 9088) {

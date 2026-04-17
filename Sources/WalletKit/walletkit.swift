@@ -5219,7 +5219,7 @@ public protocol TfhNfcIssuerProtocol: AnyObject, Sendable {
     /**
      * Refresh an NFC credential (migrate PCP to v4).
      *
-     * Calls the `/v2/refresh` endpoint and returns a parsed [`Credential`].
+     * Calls the `/v2/migrate` endpoint and returns a parsed [`Credential`].
      *
      * # Errors
      *
@@ -5298,7 +5298,7 @@ public convenience init(environment: Environment) {
     /**
      * Refresh an NFC credential (migrate PCP to v4).
      *
-     * Calls the `/v2/refresh` endpoint and returns a parsed [`Credential`].
+     * Calls the `/v2/migrate` endpoint and returns a parsed [`Credential`].
      *
      * # Errors
      *
@@ -7559,6 +7559,14 @@ public enum WalletKitError: Swift.Error, Equatable, Hashable, Foundation.Localiz
          * The error code from the NFC service (e.g. `document_expired`)
          */errorCode: String
     )
+    /**
+     * An error occurred in the OHTTP privacy layer (relay, encapsulation, or framing).
+     */
+    case OhttpError(
+        /**
+         * The error message from the OHTTP layer
+         */error: String
+    )
 
     
 
@@ -7635,6 +7643,9 @@ public struct FfiConverterTypeWalletKitError: FfiConverterRustBuffer {
         case 21: return .SessionIdMismatch
         case 22: return .NfcNonRetryable(
             errorCode: try FfiConverterString.read(from: &buf)
+            )
+        case 23: return .OhttpError(
+            error: try FfiConverterString.read(from: &buf)
             )
 
          default: throw UniffiInternalError.unexpectedEnumCase
@@ -7749,6 +7760,11 @@ public struct FfiConverterTypeWalletKitError: FfiConverterRustBuffer {
         case let .NfcNonRetryable(errorCode):
             writeInt(&buf, Int32(22))
             FfiConverterString.write(errorCode, into: &buf)
+            
+        
+        case let .OhttpError(error):
+            writeInt(&buf, Int32(23))
+            FfiConverterString.write(error, into: &buf)
             
         }
     }
@@ -8226,7 +8242,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_unbind_recovery_agent() != 41314) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_tfhnfcissuer_refresh_nfc_credential() != 55554) {
+    if (uniffi_walletkit_core_checksum_method_tfhnfcissuer_refresh_nfc_credential() != 57946) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_logger_log() != 55679) {

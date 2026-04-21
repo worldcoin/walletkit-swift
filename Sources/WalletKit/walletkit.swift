@@ -4385,7 +4385,9 @@ public protocol RecoveryBindingManagerProtocol: AnyObject, Sendable {
      * # Errors
      *
      * Returns an error if the challenge fetch, signing, or backend request fails,
-     * or if a recovery binding already exists ([`WalletKitError::RecoveryBindingAlreadyExists`]).
+     * or if the user is not eligible for recovery ([`WalletKitError::NotEligibleForRecovery`]).
+     * or if the debug report is not found ([`WalletKitError::DebugReportNotFound`]).
+     * or if any other unexpected error occurs ([`WalletKitError::NetworkError`]).
      */
     func bindRecoveryAgent(authenticator: Authenticator, sub: String, recoveryAgentAddress: String) async throws 
     
@@ -4520,7 +4522,9 @@ public static func newWithBaseUrl(baseUrl: String)throws  -> RecoveryBindingMana
      * # Errors
      *
      * Returns an error if the challenge fetch, signing, or backend request fails,
-     * or if a recovery binding already exists ([`WalletKitError::RecoveryBindingAlreadyExists`]).
+     * or if the user is not eligible for recovery ([`WalletKitError::NotEligibleForRecovery`]).
+     * or if the debug report is not found ([`WalletKitError::DebugReportNotFound`]).
+     * or if any other unexpected error occurs ([`WalletKitError::NetworkError`]).
      */
 open func bindRecoveryAgent(authenticator: Authenticator, sub: String, recoveryAgentAddress: String)async throws   {
     return
@@ -7536,10 +7540,6 @@ public enum WalletKitError: Swift.Error, Equatable, Hashable, Foundation.Localiz
          */error: String
     )
     /**
-     * The recovery binding already exists
-     */
-    case RecoveryBindingAlreadyExists
-    /**
      * The recovery binding does not exist
      */
     case RecoveryBindingDoesNotExist
@@ -7559,6 +7559,14 @@ public enum WalletKitError: Swift.Error, Equatable, Hashable, Foundation.Localiz
          * The error code from the NFC service (e.g. `document_expired`)
          */errorCode: String
     )
+    /**
+     * The debug report was not found
+     */
+    case DebugReportNotFound
+    /**
+     * The user is not eligible for recovery
+     */
+    case NotEligibleForRecovery
     /**
      * An error occurred in the OHTTP privacy layer (relay, encapsulation, or framing).
      */
@@ -7638,13 +7646,14 @@ public struct FfiConverterTypeWalletKitError: FfiConverterRustBuffer {
         case 18: return .Generic(
             error: try FfiConverterString.read(from: &buf)
             )
-        case 19: return .RecoveryBindingAlreadyExists
-        case 20: return .RecoveryBindingDoesNotExist
-        case 21: return .SessionIdMismatch
-        case 22: return .NfcNonRetryable(
+        case 19: return .RecoveryBindingDoesNotExist
+        case 20: return .SessionIdMismatch
+        case 21: return .NfcNonRetryable(
             errorCode: try FfiConverterString.read(from: &buf)
             )
-        case 23: return .OhttpError(
+        case 22: return .DebugReportNotFound
+        case 23: return .NotEligibleForRecovery
+        case 24: return .OhttpError(
             error: try FfiConverterString.read(from: &buf)
             )
 
@@ -7745,25 +7754,29 @@ public struct FfiConverterTypeWalletKitError: FfiConverterRustBuffer {
             FfiConverterString.write(error, into: &buf)
             
         
-        case .RecoveryBindingAlreadyExists:
+        case .RecoveryBindingDoesNotExist:
             writeInt(&buf, Int32(19))
         
         
-        case .RecoveryBindingDoesNotExist:
+        case .SessionIdMismatch:
             writeInt(&buf, Int32(20))
         
         
-        case .SessionIdMismatch:
-            writeInt(&buf, Int32(21))
-        
-        
         case let .NfcNonRetryable(errorCode):
-            writeInt(&buf, Int32(22))
+            writeInt(&buf, Int32(21))
             FfiConverterString.write(errorCode, into: &buf)
             
         
-        case let .OhttpError(error):
+        case .DebugReportNotFound:
+            writeInt(&buf, Int32(22))
+        
+        
+        case .NotEligibleForRecovery:
             writeInt(&buf, Int32(23))
+        
+        
+        case let .OhttpError(error):
+            writeInt(&buf, Int32(24))
             FfiConverterString.write(error, into: &buf)
             
         }
@@ -8233,7 +8246,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_fieldelement_to_hex_string() != 48989) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_bind_recovery_agent() != 36320) {
+    if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_bind_recovery_agent() != 1287) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_get_recovery_binding() != 11792) {

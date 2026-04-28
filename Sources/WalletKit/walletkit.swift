@@ -7513,6 +7513,38 @@ public enum WalletKitError: Swift.Error, Equatable, Hashable, Foundation.Localiz
      */
     case NullifierReplay
     /**
+     * The RP's signature on the proof request could not be verified.
+     */
+    case InvalidRpSignature
+    /**
+     * The RP reused a signature nonce.
+     */
+    case DuplicateNonce
+    /**
+     * The RP is unknown to the World ID registry.
+     */
+    case UnknownRp
+    /**
+     * The RP is inactive and cannot request proofs.
+     */
+    case InactiveRp
+    /**
+     * The RP's request timestamp is too old.
+     */
+    case TimestampTooOld
+    /**
+     * The RP's request timestamp is too far in the future.
+     */
+    case TimestampTooFarInFuture
+    /**
+     * The RP's request timestamp could not be parsed.
+     */
+    case InvalidTimestamp
+    /**
+     * The RP's signature has expired.
+     */
+    case RpSignatureExpired
+    /**
      * Cached Groth16 material could not be parsed or verified.
      */
     case Groth16MaterialCacheInvalid(
@@ -7636,24 +7668,32 @@ public struct FfiConverterTypeWalletKitError: FfiConverterRustBuffer {
             try FfiConverterString.read(from: &buf)
             )
         case 15: return .NullifierReplay
-        case 16: return .Groth16MaterialCacheInvalid(
+        case 16: return .InvalidRpSignature
+        case 17: return .DuplicateNonce
+        case 18: return .UnknownRp
+        case 19: return .InactiveRp
+        case 20: return .TimestampTooOld
+        case 21: return .TimestampTooFarInFuture
+        case 22: return .InvalidTimestamp
+        case 23: return .RpSignatureExpired
+        case 24: return .Groth16MaterialCacheInvalid(
             path: try FfiConverterString.read(from: &buf), 
             error: try FfiConverterString.read(from: &buf)
             )
-        case 17: return .Groth16MaterialEmbeddedLoad(
+        case 25: return .Groth16MaterialEmbeddedLoad(
             error: try FfiConverterString.read(from: &buf)
             )
-        case 18: return .Generic(
+        case 26: return .Generic(
             error: try FfiConverterString.read(from: &buf)
             )
-        case 19: return .RecoveryBindingDoesNotExist
-        case 20: return .SessionIdMismatch
-        case 21: return .NfcNonRetryable(
+        case 27: return .RecoveryBindingDoesNotExist
+        case 28: return .SessionIdMismatch
+        case 29: return .NfcNonRetryable(
             errorCode: try FfiConverterString.read(from: &buf)
             )
-        case 22: return .DebugReportNotFound
-        case 23: return .NotEligibleForRecovery
-        case 24: return .OhttpError(
+        case 30: return .DebugReportNotFound
+        case 31: return .NotEligibleForRecovery
+        case 32: return .OhttpError(
             error: try FfiConverterString.read(from: &buf)
             )
 
@@ -7738,45 +7778,77 @@ public struct FfiConverterTypeWalletKitError: FfiConverterRustBuffer {
             writeInt(&buf, Int32(15))
         
         
-        case let .Groth16MaterialCacheInvalid(path,error):
+        case .InvalidRpSignature:
             writeInt(&buf, Int32(16))
+        
+        
+        case .DuplicateNonce:
+            writeInt(&buf, Int32(17))
+        
+        
+        case .UnknownRp:
+            writeInt(&buf, Int32(18))
+        
+        
+        case .InactiveRp:
+            writeInt(&buf, Int32(19))
+        
+        
+        case .TimestampTooOld:
+            writeInt(&buf, Int32(20))
+        
+        
+        case .TimestampTooFarInFuture:
+            writeInt(&buf, Int32(21))
+        
+        
+        case .InvalidTimestamp:
+            writeInt(&buf, Int32(22))
+        
+        
+        case .RpSignatureExpired:
+            writeInt(&buf, Int32(23))
+        
+        
+        case let .Groth16MaterialCacheInvalid(path,error):
+            writeInt(&buf, Int32(24))
             FfiConverterString.write(path, into: &buf)
             FfiConverterString.write(error, into: &buf)
             
         
         case let .Groth16MaterialEmbeddedLoad(error):
-            writeInt(&buf, Int32(17))
+            writeInt(&buf, Int32(25))
             FfiConverterString.write(error, into: &buf)
             
         
         case let .Generic(error):
-            writeInt(&buf, Int32(18))
+            writeInt(&buf, Int32(26))
             FfiConverterString.write(error, into: &buf)
             
         
         case .RecoveryBindingDoesNotExist:
-            writeInt(&buf, Int32(19))
+            writeInt(&buf, Int32(27))
         
         
         case .SessionIdMismatch:
-            writeInt(&buf, Int32(20))
+            writeInt(&buf, Int32(28))
         
         
         case let .NfcNonRetryable(errorCode):
-            writeInt(&buf, Int32(21))
+            writeInt(&buf, Int32(29))
             FfiConverterString.write(errorCode, into: &buf)
             
         
         case .DebugReportNotFound:
-            writeInt(&buf, Int32(22))
+            writeInt(&buf, Int32(30))
         
         
         case .NotEligibleForRecovery:
-            writeInt(&buf, Int32(23))
+            writeInt(&buf, Int32(31))
         
         
         case let .OhttpError(error):
-            writeInt(&buf, Int32(24))
+            writeInt(&buf, Int32(32))
             FfiConverterString.write(error, into: &buf)
             
         }

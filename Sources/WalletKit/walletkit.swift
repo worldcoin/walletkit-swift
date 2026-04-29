@@ -881,8 +881,7 @@ fileprivate struct UniffiCallbackInterfaceAtomicBlobStore {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     //
-    // This creates 1-element array, since this seems to be the only way to construct a const
-    // pointer that we can pass to the Rust code.
+    // Store the vtable directly.
     static let vtable: UniffiVTableCallbackInterfaceAtomicBlobStore = UniffiVTableCallbackInterfaceAtomicBlobStore(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
@@ -2492,8 +2491,7 @@ fileprivate struct UniffiCallbackInterfaceDeviceKeystore {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     //
-    // This creates 1-element array, since this seems to be the only way to construct a const
-    // pointer that we can pass to the Rust code.
+    // Store the vtable directly.
     static let vtable: UniffiVTableCallbackInterfaceDeviceKeystore = UniffiVTableCallbackInterfaceDeviceKeystore(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
@@ -3221,8 +3219,7 @@ fileprivate struct UniffiCallbackInterfaceLogger {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     //
-    // This creates 1-element array, since this seems to be the only way to construct a const
-    // pointer that we can pass to the Rust code.
+    // Store the vtable directly.
     static let vtable: UniffiVTableCallbackInterfaceLogger = UniffiVTableCallbackInterfaceLogger(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
@@ -4473,11 +4470,12 @@ open class RecoveryBindingManager: RecoveryBindingManagerProtocol, @unchecked Se
      *
      * Returns an error if the HTTP client cannot be built.
      */
-public convenience init(environment: Environment)throws  {
+public convenience init(environment: Environment, userAgentBuilder: UserAgentBuilder)throws  {
     let handle =
         try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
     uniffi_walletkit_core_fn_constructor_recoverybindingmanager_new(
-        FfiConverterTypeEnvironment_lower(environment),$0
+        FfiConverterTypeEnvironment_lower(environment),
+        FfiConverterTypeUserAgentBuilder_lower(userAgentBuilder),$0
     )
 }
     self.init(unsafeFromHandle: handle)
@@ -4500,10 +4498,11 @@ public convenience init(environment: Environment)throws  {
      *
      * Returns an error if the HTTP client cannot be built.
      */
-public static func newWithBaseUrl(baseUrl: String)throws  -> RecoveryBindingManager  {
+public static func newWithBaseUrl(baseUrl: String, userAgentBuilder: UserAgentBuilder)throws  -> RecoveryBindingManager  {
     return try  FfiConverterTypeRecoveryBindingManager_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
     uniffi_walletkit_core_fn_constructor_recoverybindingmanager_new_with_base_url(
-        FfiConverterString.lower(baseUrl),$0
+        FfiConverterString.lower(baseUrl),
+        FfiConverterTypeUserAgentBuilder_lower(userAgentBuilder),$0
     )
 })
 }
@@ -5057,8 +5056,7 @@ fileprivate struct UniffiCallbackInterfaceStorageProvider {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     //
-    // This creates 1-element array, since this seems to be the only way to construct a const
-    // pointer that we can pass to the Rust code.
+    // Store the vtable directly.
     static let vtable: UniffiVTableCallbackInterfaceStorageProvider = UniffiVTableCallbackInterfaceStorageProvider(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
@@ -5277,11 +5275,12 @@ open class TfhNfcIssuer: TfhNfcIssuerProtocol, @unchecked Sendable {
     /**
      * Create a new TFH NFC issuer for the specified environment
      */
-public convenience init(environment: Environment) {
+public convenience init(environment: Environment, userAgent: String) {
     let handle =
         try! rustCall() {
     uniffi_walletkit_core_fn_constructor_tfhnfcissuer_new(
-        FfiConverterTypeEnvironment_lower(environment),$0
+        FfiConverterTypeEnvironment_lower(environment),
+        FfiConverterString.lower(userAgent),$0
     )
 }
     self.init(unsafeFromHandle: handle)
@@ -5368,6 +5367,298 @@ public func FfiConverterTypeTfhNfcIssuer_lift(_ handle: UInt64) throws -> TfhNfc
 #endif
 public func FfiConverterTypeTfhNfcIssuer_lower(_ value: TfhNfcIssuer) -> UInt64 {
     return FfiConverterTypeTfhNfcIssuer.lower(value)
+}
+
+
+
+
+
+
+/**
+ * Represents a User-Agent string.
+ */
+public protocol UserAgentProtocol: AnyObject, Sendable {
+    
+}
+/**
+ * Represents a User-Agent string.
+ */
+open class UserAgent: UserAgentProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_useragent(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_useragent(handle, $0) }
+    }
+
+    
+
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeUserAgent: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = UserAgent
+
+    public static func lift(_ handle: UInt64) throws -> UserAgent {
+        return UserAgent(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: UserAgent) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UserAgent {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: UserAgent, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeUserAgent_lift(_ handle: UInt64) throws -> UserAgent {
+    return try FfiConverterTypeUserAgent.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeUserAgent_lower(_ value: UserAgent) -> UInt64 {
+    return FfiConverterTypeUserAgent.lower(value)
+}
+
+
+
+
+
+
+/**
+ * Builds the [`UserAgent`] string sent as the HTTP `User-Agent` header.
+ *
+ * Starts empty; call [`Self::with_segment`] for arbitrary `name/version` tokens and
+ * [`Self::with_walletkit_segment`] for the library token (in whatever order fits the host — e.g.
+ * native app vs web authenticator may omit an app-like segment entirely).
+ */
+public protocol UserAgentBuilderProtocol: AnyObject, Sendable {
+    
+    /**
+     * Finalizes the header value as [`UserAgent`].
+     */
+    func build()  -> UserAgent
+    
+    /**
+     * Appends `{product}/{version}` (e.g. `WorldApp/2.1`, `Chrome/120`). No-op if either side is empty after trim.
+     */
+    func withSegment(name: String, version: String)  -> UserAgentBuilder
+    
+    /**
+     * Appends `walletkit-core/{crate version}`.
+     */
+    func withWalletkitSegment()  -> UserAgentBuilder
+    
+}
+/**
+ * Builds the [`UserAgent`] string sent as the HTTP `User-Agent` header.
+ *
+ * Starts empty; call [`Self::with_segment`] for arbitrary `name/version` tokens and
+ * [`Self::with_walletkit_segment`] for the library token (in whatever order fits the host — e.g.
+ * native app vs web authenticator may omit an app-like segment entirely).
+ */
+open class UserAgentBuilder: UserAgentBuilderProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_useragentbuilder(self.handle, $0) }
+    }
+    /**
+     * Empty builder — add segments with [`Self::with_segment`] and/or [`Self::with_walletkit_segment`].
+     */
+public convenience init() {
+    let handle =
+        try! rustCall() {
+    uniffi_walletkit_core_fn_constructor_useragentbuilder_new($0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_useragentbuilder(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Finalizes the header value as [`UserAgent`].
+     */
+open func build() -> UserAgent  {
+    return try!  FfiConverterTypeUserAgent_lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_useragentbuilder_build(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Appends `{product}/{version}` (e.g. `WorldApp/2.1`, `Chrome/120`). No-op if either side is empty after trim.
+     */
+open func withSegment(name: String, version: String) -> UserAgentBuilder  {
+    return try!  FfiConverterTypeUserAgentBuilder_lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_useragentbuilder_with_segment(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(name),
+        FfiConverterString.lower(version),$0
+    )
+})
+}
+    
+    /**
+     * Appends `walletkit-core/{crate version}`.
+     */
+open func withWalletkitSegment() -> UserAgentBuilder  {
+    return try!  FfiConverterTypeUserAgentBuilder_lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_useragentbuilder_with_walletkit_segment(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeUserAgentBuilder: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = UserAgentBuilder
+
+    public static func lift(_ handle: UInt64) throws -> UserAgentBuilder {
+        return UserAgentBuilder(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: UserAgentBuilder) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UserAgentBuilder {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: UserAgentBuilder, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeUserAgentBuilder_lift(_ handle: UInt64) throws -> UserAgentBuilder {
+    return try FfiConverterTypeUserAgentBuilder.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeUserAgentBuilder_lower(_ value: UserAgentBuilder) -> UInt64 {
+    return FfiConverterTypeUserAgentBuilder.lower(value)
 }
 
 
@@ -5502,9 +5793,8 @@ fileprivate struct UniffiCallbackInterfaceVaultChangedListener {
     // Create the VTable using a series of closures.
     // Swift automatically converts these into C callback functions.
     //
-    // This creates 1-element array, since this seems to be the only way to construct a const
-    // pointer that we can pass to the Rust code.
-    static let vtable: [UniffiVTableCallbackInterfaceVaultChangedListener] = [UniffiVTableCallbackInterfaceVaultChangedListener(
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceVaultChangedListener = UniffiVTableCallbackInterfaceVaultChangedListener(
         uniffiFree: { (uniffiHandle: UInt64) -> () in
             do {
                 try FfiConverterTypeVaultChangedListener.handleMap.remove(handle: uniffiHandle)
@@ -5541,11 +5831,19 @@ fileprivate struct UniffiCallbackInterfaceVaultChangedListener {
                 writeReturn: writeReturn
             )
         }
-    )]
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceVaultChangedListener> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceVaultChangedListener>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
 }
 
 private func uniffiCallbackInitVaultChangedListener() {
-    uniffi_walletkit_core_fn_init_callback_vtable_vaultchangedlistener(UniffiCallbackInterfaceVaultChangedListener.vtable)
+    uniffi_walletkit_core_fn_init_callback_vtable_vaultchangedlistener(UniffiCallbackInterfaceVaultChangedListener.vtablePtr)
 }
 
 #if swift(>=5.8)
@@ -8441,6 +8739,15 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_vaultchangedlistener_on_vault_changed() != 30325) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_method_useragentbuilder_build() != 34488) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_useragentbuilder_with_segment() != 52442) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_useragentbuilder_with_walletkit_segment() != 8005) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_method_addressbook_generate_proof_context() != 32396) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -8504,13 +8811,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_constructor_fieldelement_try_from_hex_string() != 7854) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_recoverybindingmanager_new() != 15493) {
+    if (uniffi_walletkit_core_checksum_constructor_recoverybindingmanager_new() != 13568) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_recoverybindingmanager_new_with_base_url() != 2756) {
+    if (uniffi_walletkit_core_checksum_constructor_recoverybindingmanager_new_with_base_url() != 2129) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_tfhnfcissuer_new() != 15498) {
+    if (uniffi_walletkit_core_checksum_constructor_tfhnfcissuer_new() != 54943) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_proofrequest_from_json() != 5834) {
@@ -8523,6 +8830,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_storagepaths_from_root() != 48567) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_constructor_useragentbuilder_new() != 59283) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_addressbook_new() != 61276) {

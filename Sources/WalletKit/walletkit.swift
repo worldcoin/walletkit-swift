@@ -1199,6 +1199,34 @@ public protocol AuthenticatorProtocol: AnyObject, Sendable {
     func packedAccountData()  -> Uint256
     
     /**
+     * Generates a WIP-103 Ownership Proof for Issuers.
+     *
+     * An Ownership Proof lets the user prove they own the credential `sub`
+     * associated with a stored credential without revealing their `leaf_index`.
+     *
+     * # Security-critical usage constraint
+     * This method **MUST only** be called as part of a direct
+     * **user-initiated** action in the client. Callers **MUST NOT** expose this
+     * method to issuer-triggered, backend-triggered, or unauthenticated request
+     * flows.
+     *
+     * # Arguments
+     * * `nonce` - A field element provided by the Issuer to prevent replay.
+     * * `blinding_factor` - The credential blinding factor previously used to
+     * derive the credential `sub`.
+     * * `sub` - The credential `sub` (commitment) to prove ownership of.
+     *
+     * # Errors
+     * - Returns [`WalletKitError::InvalidInput`] if `blinding_factor` and
+     * `sub` are inconsistent with each other (i.e. `sub` was not derived
+     * from this authenticator's leaf index and the provided blinding factor).
+     * - Returns a network error if the Merkle inclusion proof cannot be
+     * fetched from the indexer.
+     * - Returns [`WalletKitError::ProofGeneration`] if the ZK proof fails.
+     */
+    func proveCredentialSub(nonce: FieldElement, blindingFactor: FieldElement, sub: FieldElement) async throws  -> OwnershipProof
+    
+    /**
      * Permanently destroys all credential storage data.
      *
      * Removes the encryption keys, vault database, and cache database.
@@ -1604,6 +1632,49 @@ open func packedAccountData() -> Uint256  {
             self.uniffiCloneHandle(),$0
     )
 })
+}
+    
+    /**
+     * Generates a WIP-103 Ownership Proof for Issuers.
+     *
+     * An Ownership Proof lets the user prove they own the credential `sub`
+     * associated with a stored credential without revealing their `leaf_index`.
+     *
+     * # Security-critical usage constraint
+     * This method **MUST only** be called as part of a direct
+     * **user-initiated** action in the client. Callers **MUST NOT** expose this
+     * method to issuer-triggered, backend-triggered, or unauthenticated request
+     * flows.
+     *
+     * # Arguments
+     * * `nonce` - A field element provided by the Issuer to prevent replay.
+     * * `blinding_factor` - The credential blinding factor previously used to
+     * derive the credential `sub`.
+     * * `sub` - The credential `sub` (commitment) to prove ownership of.
+     *
+     * # Errors
+     * - Returns [`WalletKitError::InvalidInput`] if `blinding_factor` and
+     * `sub` are inconsistent with each other (i.e. `sub` was not derived
+     * from this authenticator's leaf index and the provided blinding factor).
+     * - Returns a network error if the Merkle inclusion proof cannot be
+     * fetched from the indexer.
+     * - Returns [`WalletKitError::ProofGeneration`] if the ZK proof fails.
+     */
+open func proveCredentialSub(nonce: FieldElement, blindingFactor: FieldElement, sub: FieldElement)async throws  -> OwnershipProof  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_authenticator_prove_credential_sub(
+                    self.uniffiCloneHandle(),
+                    FfiConverterTypeFieldElement_lower(nonce),FfiConverterTypeFieldElement_lower(blindingFactor),FfiConverterTypeFieldElement_lower(sub)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_u64,
+            completeFunc: ffi_walletkit_core_rust_future_complete_u64,
+            freeFunc: ffi_walletkit_core_rust_future_free_u64,
+            liftFunc: FfiConverterTypeOwnershipProof_lift,
+            errorHandler: FfiConverterTypeWalletKitError_lift
+        )
 }
     
     /**
@@ -3466,6 +3537,178 @@ public func FfiConverterTypeMerkleTreeProof_lift(_ handle: UInt64) throws -> Mer
 #endif
 public func FfiConverterTypeMerkleTreeProof_lower(_ value: MerkleTreeProof) -> UInt64 {
     return FfiConverterTypeMerkleTreeProof.lower(value)
+}
+
+
+
+
+
+
+/**
+ * A WIP-103 Ownership Proof available to foreign bindings
+ */
+public protocol OwnershipProofProtocol: AnyObject, Sendable {
+    
+    /**
+     * Encodes the proof as raw bytes.
+     *
+     * # Errors
+     * An encoding error is theoretically possible, should not happen in practice.
+     */
+    func encode() throws  -> Data
+    
+    /**
+     * Encodes the proof as base-64 encoded bytes.
+     *
+     * # Errors
+     * An encoding error is theoretically possible, should not happen in practice.
+     */
+    func encodeB64() throws  -> String
+    
+    /**
+     * The root hash of the Merkle root used for inclusion in the `WorldIDRegistry`.
+     */
+    func merkleRoot()  -> FieldElement
+    
+}
+/**
+ * A WIP-103 Ownership Proof available to foreign bindings
+ */
+open class OwnershipProof: OwnershipProofProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_ownershipproof(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_ownershipproof(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Encodes the proof as raw bytes.
+     *
+     * # Errors
+     * An encoding error is theoretically possible, should not happen in practice.
+     */
+open func encode()throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+    uniffi_walletkit_core_fn_method_ownershipproof_encode(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Encodes the proof as base-64 encoded bytes.
+     *
+     * # Errors
+     * An encoding error is theoretically possible, should not happen in practice.
+     */
+open func encodeB64()throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+    uniffi_walletkit_core_fn_method_ownershipproof_encode_b64(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The root hash of the Merkle root used for inclusion in the `WorldIDRegistry`.
+     */
+open func merkleRoot() -> FieldElement  {
+    return try!  FfiConverterTypeFieldElement_lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_ownershipproof_merkle_root(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeOwnershipProof: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = OwnershipProof
+
+    public static func lift(_ handle: UInt64) throws -> OwnershipProof {
+        return OwnershipProof(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: OwnershipProof) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> OwnershipProof {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: OwnershipProof, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeOwnershipProof_lift(_ handle: UInt64) throws -> OwnershipProof {
+    return try FfiConverterTypeOwnershipProof.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeOwnershipProof_lower(_ value: OwnershipProof) -> UInt64 {
+    return FfiConverterTypeOwnershipProof.lower(value)
 }
 
 
@@ -8589,6 +8832,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_authenticator_packed_account_data() != 38096) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_method_authenticator_prove_credential_sub() != 42354) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_method_authenticator_destroy_storage() != 59925) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -8629,6 +8875,15 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_logger_log() != 55679) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_ownershipproof_encode() != 18078) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_ownershipproof_encode_b64() != 58705) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_ownershipproof_merkle_root() != 22448) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_proofrequest_id() != 64235) {

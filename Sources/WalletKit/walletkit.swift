@@ -1312,11 +1312,11 @@ open class Authenticator: AuthenticatorProtocol, @unchecked Sendable {
      * # Errors
      * Will error if the provided seed is not valid or if the config is not valid.
      */
-public static func `init`(seed: Data, config: String, paths: StoragePaths, store: CredentialStore)async throws  -> Authenticator  {
+public static func `init`(seed: Data, config: String, materials: Groth16Materials, store: CredentialStore)async throws  -> Authenticator  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_walletkit_core_fn_constructor_authenticator_init(FfiConverterData.lower(seed),FfiConverterString.lower(config),FfiConverterTypeStoragePaths_lower(paths),FfiConverterTypeCredentialStore_lower(store)
+                uniffi_walletkit_core_fn_constructor_authenticator_init(FfiConverterData.lower(seed),FfiConverterString.lower(config),FfiConverterTypeGroth16Materials_lower(materials),FfiConverterTypeCredentialStore_lower(store)
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_u64,
@@ -1336,11 +1336,11 @@ public static func `init`(seed: Data, config: String, paths: StoragePaths, store
      * # Errors
      * See `CoreAuthenticator::init` for potential errors.
      */
-public static func initWithDefaults(seed: Data, rpcUrl: String?, environment: Environment, region: Region?, paths: StoragePaths, store: CredentialStore)async throws  -> Authenticator  {
+public static func initWithDefaults(seed: Data, rpcUrl: String?, environment: Environment, region: Region?, materials: Groth16Materials, store: CredentialStore)async throws  -> Authenticator  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_walletkit_core_fn_constructor_authenticator_init_with_defaults(FfiConverterData.lower(seed),FfiConverterOptionString.lower(rpcUrl),FfiConverterTypeEnvironment_lower(environment),FfiConverterOptionTypeRegion.lower(region),FfiConverterTypeStoragePaths_lower(paths),FfiConverterTypeCredentialStore_lower(store)
+                uniffi_walletkit_core_fn_constructor_authenticator_init_with_defaults(FfiConverterData.lower(seed),FfiConverterOptionString.lower(rpcUrl),FfiConverterTypeEnvironment_lower(environment),FfiConverterOptionTypeRegion.lower(region),FfiConverterTypeGroth16Materials_lower(materials),FfiConverterTypeCredentialStore_lower(store)
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_u64,
@@ -2031,6 +2031,7 @@ public protocol CredentialStoreProtocol: AnyObject, Sendable {
      *
      * The store must already be initialized via [`init`](Self::init).
      * Intended for restore on a fresh install where the vault is empty.
+     *
      * # Errors
      *
      * Returns an error if the store is not initialized or the import fails.
@@ -2057,22 +2058,6 @@ public protocol CredentialStoreProtocol: AnyObject, Sendable {
      * Returns an error if the credential query fails.
      */
     func listCredentials(issuerSchemaId: UInt64?, now: UInt64) throws  -> [CredentialRecord]
-    
-    /**
-     * Registers a listener that is called after a credential is added or
-     * removed.
-     *
-     * Only one listener can be active at a time — calling this replaces any
-     * previously registered listener. The previous delivery thread shuts down
-     * automatically when the old sender is dropped.
-     *
-     * Delivery happens on a dedicated background thread to avoid re-entering
-     * the `UniFFI` call stack (see `logger.rs` for rationale).
-     *
-     * **Warning:** the listener **must not** call back into this
-     * `CredentialStore` — doing so will deadlock.
-     */
-    func setVaultChangedListener(listener: VaultChangedListener) 
     
     /**
      * Returns the storage paths used by this handle.
@@ -2269,6 +2254,7 @@ open func exportVaultForBackup()throws  -> Data  {
      *
      * The store must already be initialized via [`init`](Self::init).
      * Intended for restore on a fresh install where the vault is empty.
+     *
      * # Errors
      *
      * Returns an error if the store is not initialized or the import fails.
@@ -2315,28 +2301,6 @@ open func listCredentials(issuerSchemaId: UInt64?, now: UInt64)throws  -> [Crede
         FfiConverterUInt64.lower(now),$0
     )
 })
-}
-    
-    /**
-     * Registers a listener that is called after a credential is added or
-     * removed.
-     *
-     * Only one listener can be active at a time — calling this replaces any
-     * previously registered listener. The previous delivery thread shuts down
-     * automatically when the old sender is dropped.
-     *
-     * Delivery happens on a dedicated background thread to avoid re-entering
-     * the `UniFFI` call stack (see `logger.rs` for rationale).
-     *
-     * **Warning:** the listener **must not** call back into this
-     * `CredentialStore` — doing so will deadlock.
-     */
-open func setVaultChangedListener(listener: VaultChangedListener)  {try! rustCall() {
-    uniffi_walletkit_core_fn_method_credentialstore_set_vault_changed_listener(
-            self.uniffiCloneHandle(),
-        FfiConverterTypeVaultChangedListener_lower(listener),$0
-    )
-}
 }
     
     /**
@@ -2905,6 +2869,138 @@ public func FfiConverterTypeFieldElement_lift(_ handle: UInt64) throws -> FieldE
 #endif
 public func FfiConverterTypeFieldElement_lower(_ value: FieldElement) -> UInt64 {
     return FfiConverterTypeFieldElement.lower(value)
+}
+
+
+
+
+
+
+/**
+ * ZK Proof material for both Groth16 proofs (query & nullifier proofs)
+ */
+public protocol Groth16MaterialsProtocol: AnyObject, Sendable {
+    
+}
+/**
+ * ZK Proof material for both Groth16 proofs (query & nullifier proofs)
+ */
+open class Groth16Materials: Groth16MaterialsProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_groth16materials(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_groth16materials(handle, $0) }
+    }
+
+    
+    /**
+     * Loads Groth16 material from cached files on disk.
+     *
+     * Use `storage::cache_embedded_groth16_material` (requires the `embed-zkeys` feature)
+     * to populate the cache before calling this.
+     *
+     * Not available on WASM (no filesystem).
+     *
+     * # Errors
+     *
+     * Returns an error if the cached files cannot be read or verified.
+     */
+public static func fromCache(paths: StoragePaths)throws  -> Groth16Materials  {
+    return try  FfiConverterTypeGroth16Materials_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+    uniffi_walletkit_core_fn_constructor_groth16materials_from_cache(
+        FfiConverterTypeStoragePaths_lower(paths),$0
+    )
+})
+}
+    
+
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGroth16Materials: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = Groth16Materials
+
+    public static func lift(_ handle: UInt64) throws -> Groth16Materials {
+        return Groth16Materials(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: Groth16Materials) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Groth16Materials {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: Groth16Materials, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGroth16Materials_lift(_ handle: UInt64) throws -> Groth16Materials {
+    return try FfiConverterTypeGroth16Materials.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGroth16Materials_lower(_ value: Groth16Materials) -> UInt64 {
+    return FfiConverterTypeGroth16Materials.lower(value)
 }
 
 
@@ -8744,27 +8840,12 @@ public func emitLog(level: LogLevel, message: String)  {try! rustCall() {
  *
  * # Panics
  *
- * Panics if the dedicated logger delivery thread cannot be spawned.
+ * Panics if the dedicated logger delivery thread cannot be spawned (native only).
  */
 public func initLogging(logger: Logger, level: LogLevel?)  {try! rustCall() {
     uniffi_walletkit_core_fn_func_init_logging(
         FfiConverterTypeLogger_lower(logger),
         FfiConverterOptionTypeLogLevel.lower(level),$0
-    )
-}
-}
-/**
- * Writes embedded Groth16 material to the cache paths managed by [`StoragePaths`].
- *
- * This operation is idempotent and atomically rewrites all managed files.
- *
- * # Errors
- *
- * Returns an error if embedded material cannot be loaded or cache files cannot be written.
- */
-public func cacheEmbeddedGroth16Material(paths: StoragePaths)throws   {try rustCallWithError(FfiConverterTypeStorageError_lift) {
-    uniffi_walletkit_core_fn_func_cache_embedded_groth16_material(
-        FfiConverterTypeStoragePaths_lower(paths),$0
     )
 }
 }
@@ -8790,10 +8871,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_func_emit_log() != 60718) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_func_init_logging() != 62449) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_walletkit_core_checksum_func_cache_embedded_groth16_material() != 10840) {
+    if (uniffi_walletkit_core_checksum_func_init_logging() != 19546) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_authenticator_cancel_recovery_agent_update() != 27625) {
@@ -8919,16 +8997,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_credentialstore_export_vault_for_backup() != 8389) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_import_vault_from_backup() != 37931) {
+    if (uniffi_walletkit_core_checksum_method_credentialstore_import_vault_from_backup() != 13143) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_credentialstore_init() != 6887) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_credentialstore_list_credentials() != 46271) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_set_vault_changed_listener() != 9088) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_credentialstore_storage_paths() != 17739) {
@@ -9042,10 +9117,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_worldid_is_equal_to() != 27629) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_authenticator_init() != 19156) {
+    if (uniffi_walletkit_core_checksum_constructor_authenticator_init() != 64725) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_authenticator_init_with_defaults() != 8041) {
+    if (uniffi_walletkit_core_checksum_constructor_authenticator_init_with_defaults() != 47709) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_constructor_groth16materials_from_cache() != 54053) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_initializingauthenticator_register() != 35471) {

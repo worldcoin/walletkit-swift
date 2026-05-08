@@ -2060,6 +2060,22 @@ public protocol CredentialStoreProtocol: AnyObject, Sendable {
     func listCredentials(issuerSchemaId: UInt64?, now: UInt64) throws  -> [CredentialRecord]
     
     /**
+     * Registers a listener that is called after every successful vault
+     * mutation (store, delete, purge).
+     *
+     * Only one listener can be active at a time — calling this replaces any
+     * previously registered listener. The previous delivery thread shuts down
+     * automatically when the old sender is dropped.
+     *
+     * Delivery happens on a dedicated background thread to avoid re-entering
+     * the `UniFFI` call stack (see `logger.rs` for rationale).
+     *
+     * **Warning:** the listener **must not** call back into this
+     * `CredentialStore` — doing so will deadlock.
+     */
+    func setVaultChangedListener(listener: VaultChangedListener) 
+    
+    /**
      * Returns the storage paths used by this handle.
      *
      * # Errors
@@ -2301,6 +2317,28 @@ open func listCredentials(issuerSchemaId: UInt64?, now: UInt64)throws  -> [Crede
         FfiConverterUInt64.lower(now),$0
     )
 })
+}
+    
+    /**
+     * Registers a listener that is called after every successful vault
+     * mutation (store, delete, purge).
+     *
+     * Only one listener can be active at a time — calling this replaces any
+     * previously registered listener. The previous delivery thread shuts down
+     * automatically when the old sender is dropped.
+     *
+     * Delivery happens on a dedicated background thread to avoid re-entering
+     * the `UniFFI` call stack (see `logger.rs` for rationale).
+     *
+     * **Warning:** the listener **must not** call back into this
+     * `CredentialStore` — doing so will deadlock.
+     */
+open func setVaultChangedListener(listener: VaultChangedListener)  {try! rustCall() {
+    uniffi_walletkit_core_fn_method_credentialstore_set_vault_changed_listener(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeVaultChangedListener_lower(listener),$0
+    )
+}
 }
     
     /**
@@ -2952,6 +2990,24 @@ public static func fromCache(paths: StoragePaths)throws  -> Groth16Materials  {
     return try  FfiConverterTypeGroth16Materials_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
     uniffi_walletkit_core_fn_constructor_groth16materials_from_cache(
         FfiConverterTypeStoragePaths_lower(paths),$0
+    )
+})
+}
+    
+    /**
+     * Loads Groth16 material from the embedded (compiled-in) zkeys and graphs.
+     *
+     * Requires the `embed-zkeys` feature. The material is baked into the binary at
+     * compile time so no filesystem access is required, and this works on every
+     * platform including WASM.
+     *
+     * # Errors
+     *
+     * Returns an error if the embedded material cannot be loaded or verified.
+     */
+public static func fromEmbedded()throws  -> Groth16Materials  {
+    return try  FfiConverterTypeGroth16Materials_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+    uniffi_walletkit_core_fn_constructor_groth16materials_from_embedded($0
     )
 })
 }
@@ -8849,6 +8905,21 @@ public func initLogging(logger: Logger, level: LogLevel?)  {try! rustCall() {
     )
 }
 }
+/**
+ * Writes embedded Groth16 material to the cache paths managed by [`StoragePaths`].
+ *
+ * This operation is idempotent and atomically rewrites all managed files.
+ *
+ * # Errors
+ *
+ * Returns an error if embedded material cannot be loaded or cache files cannot be written.
+ */
+public func cacheEmbeddedGroth16Material(paths: StoragePaths)throws   {try rustCallWithError(FfiConverterTypeStorageError_lift) {
+    uniffi_walletkit_core_fn_func_cache_embedded_groth16_material(
+        FfiConverterTypeStoragePaths_lower(paths),$0
+    )
+}
+}
 
 private enum InitializationResult {
     case ok
@@ -8872,6 +8943,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_func_init_logging() != 19546) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_func_cache_embedded_groth16_material() != 10840) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_authenticator_cancel_recovery_agent_update() != 27625) {
@@ -9006,6 +9080,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_credentialstore_list_credentials() != 46271) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_method_credentialstore_set_vault_changed_listener() != 47638) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_method_credentialstore_storage_paths() != 17739) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9124,6 +9201,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_groth16materials_from_cache() != 54053) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_constructor_groth16materials_from_embedded() != 17029) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_initializingauthenticator_register() != 35471) {

@@ -6582,6 +6582,164 @@ public func FfiConverterTypeWorldId_lower(_ value: WorldId) -> UInt64 {
 
 
 /**
+ * Check result for a single request item.
+ */
+public struct CredentialConstraintsCheckItem: Equatable, Hashable {
+    /**
+     * The RP-defined identifier for this request item (e.g. `"orb"`, `"document"`).
+     */
+    public var identifier: String
+    /**
+     * Issuer schema ID required by this item.
+     */
+    public var issuerSchemaId: UInt64
+    /**
+     * `true` when the store contains at least one non-expired credential that meets
+     * all time constraints (`genesis_issued_at_min`, `expires_at_min`) for this item.
+     */
+    public var hasCredential: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The RP-defined identifier for this request item (e.g. `"orb"`, `"document"`).
+         */identifier: String, 
+        /**
+         * Issuer schema ID required by this item.
+         */issuerSchemaId: UInt64, 
+        /**
+         * `true` when the store contains at least one non-expired credential that meets
+         * all time constraints (`genesis_issued_at_min`, `expires_at_min`) for this item.
+         */hasCredential: Bool) {
+        self.identifier = identifier
+        self.issuerSchemaId = issuerSchemaId
+        self.hasCredential = hasCredential
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension CredentialConstraintsCheckItem: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCredentialConstraintsCheckItem: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CredentialConstraintsCheckItem {
+        return
+            try CredentialConstraintsCheckItem(
+                identifier: FfiConverterString.read(from: &buf), 
+                issuerSchemaId: FfiConverterUInt64.read(from: &buf), 
+                hasCredential: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CredentialConstraintsCheckItem, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.identifier, into: &buf)
+        FfiConverterUInt64.write(value.issuerSchemaId, into: &buf)
+        FfiConverterBool.write(value.hasCredential, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCredentialConstraintsCheckItem_lift(_ buf: RustBuffer) throws -> CredentialConstraintsCheckItem {
+    return try FfiConverterTypeCredentialConstraintsCheckItem.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCredentialConstraintsCheckItem_lower(_ value: CredentialConstraintsCheckItem) -> RustBuffer {
+    return FfiConverterTypeCredentialConstraintsCheckItem.lower(value)
+}
+
+
+/**
+ * Result of [`check_credentials_against_proof_request`].
+ */
+public struct CredentialConstraintsCheckResult: Equatable, Hashable {
+    /**
+     * `true` when the constraint tree (or all items, if no constraints) is satisfied.
+     */
+    public var isSatisfied: Bool
+    /**
+     * One entry per request item in the proof request, in the same order.
+     *
+     * Always populated regardless of `is_satisfied`. When `is_satisfied` is `false`,
+     * items with `has_credential = false` identify what is missing or does not meet
+     * the request's time constraints.
+     */
+    public var checkResults: [CredentialConstraintsCheckItem]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * `true` when the constraint tree (or all items, if no constraints) is satisfied.
+         */isSatisfied: Bool, 
+        /**
+         * One entry per request item in the proof request, in the same order.
+         *
+         * Always populated regardless of `is_satisfied`. When `is_satisfied` is `false`,
+         * items with `has_credential = false` identify what is missing or does not meet
+         * the request's time constraints.
+         */checkResults: [CredentialConstraintsCheckItem]) {
+        self.isSatisfied = isSatisfied
+        self.checkResults = checkResults
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension CredentialConstraintsCheckResult: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCredentialConstraintsCheckResult: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CredentialConstraintsCheckResult {
+        return
+            try CredentialConstraintsCheckResult(
+                isSatisfied: FfiConverterBool.read(from: &buf), 
+                checkResults: FfiConverterSequenceTypeCredentialConstraintsCheckItem.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: CredentialConstraintsCheckResult, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.isSatisfied, into: &buf)
+        FfiConverterSequenceTypeCredentialConstraintsCheckItem.write(value.checkResults, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCredentialConstraintsCheckResult_lift(_ buf: RustBuffer) throws -> CredentialConstraintsCheckResult {
+    return try FfiConverterTypeCredentialConstraintsCheckResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCredentialConstraintsCheckResult_lower(_ value: CredentialConstraintsCheckResult) -> RustBuffer {
+    return FfiConverterTypeCredentialConstraintsCheckResult.lower(value)
+}
+
+
+/**
  * In-memory representation of stored credential metadata.
  *
  * This is intentionally small and excludes blobs; full credential payloads can
@@ -6596,6 +6754,10 @@ public struct CredentialRecord: Equatable, Hashable {
      * Issuer schema identifier.
      */
     public var issuerSchemaId: UInt64
+    /**
+     * Genesis issuance timestamp (seconds).
+     */
+    public var genesisIssuedAt: UInt64
     /**
      * Expiry timestamp (seconds).
      */
@@ -6617,6 +6779,9 @@ public struct CredentialRecord: Equatable, Hashable {
          * Issuer schema identifier.
          */issuerSchemaId: UInt64, 
         /**
+         * Genesis issuance timestamp (seconds).
+         */genesisIssuedAt: UInt64, 
+        /**
          * Expiry timestamp (seconds).
          */expiresAt: UInt64, 
         /**
@@ -6626,6 +6791,7 @@ public struct CredentialRecord: Equatable, Hashable {
          */isExpired: Bool) {
         self.credentialId = credentialId
         self.issuerSchemaId = issuerSchemaId
+        self.genesisIssuedAt = genesisIssuedAt
         self.expiresAt = expiresAt
         self.isExpired = isExpired
     }
@@ -6648,6 +6814,7 @@ public struct FfiConverterTypeCredentialRecord: FfiConverterRustBuffer {
             try CredentialRecord(
                 credentialId: FfiConverterUInt64.read(from: &buf), 
                 issuerSchemaId: FfiConverterUInt64.read(from: &buf), 
+                genesisIssuedAt: FfiConverterUInt64.read(from: &buf), 
                 expiresAt: FfiConverterUInt64.read(from: &buf), 
                 isExpired: FfiConverterBool.read(from: &buf)
         )
@@ -6656,6 +6823,7 @@ public struct FfiConverterTypeCredentialRecord: FfiConverterRustBuffer {
     public static func write(_ value: CredentialRecord, into buf: inout [UInt8]) {
         FfiConverterUInt64.write(value.credentialId, into: &buf)
         FfiConverterUInt64.write(value.issuerSchemaId, into: &buf)
+        FfiConverterUInt64.write(value.genesisIssuedAt, into: &buf)
         FfiConverterUInt64.write(value.expiresAt, into: &buf)
         FfiConverterBool.write(value.isExpired, into: &buf)
     }
@@ -7223,6 +7391,104 @@ public func FfiConverterTypeBlobKind_lower(_ value: BlobKind) -> RustBuffer {
     return FfiConverterTypeBlobKind.lower(value)
 }
 
+
+
+/**
+ * Error returned by [`check_credentials_against_proof_request`].
+ */
+public enum CredentialConstraintsCheckError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+    
+    
+    /**
+     * Credential store query failed.
+     */
+    case Storage(StorageError
+    )
+    /**
+     * The constraint expression exceeds the maximum nesting depth of 2.
+     */
+    case ConstraintTooDeep
+    /**
+     * The constraint expression exceeds the maximum node count.
+     */
+    case ConstraintTooLarge
+
+    
+
+    
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
+}
+
+#if compiler(>=6)
+extension CredentialConstraintsCheckError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCredentialConstraintsCheckError: FfiConverterRustBuffer {
+    typealias SwiftType = CredentialConstraintsCheckError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CredentialConstraintsCheckError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .Storage(
+            try FfiConverterTypeStorageError.read(from: &buf)
+            )
+        case 2: return .ConstraintTooDeep
+        case 3: return .ConstraintTooLarge
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: CredentialConstraintsCheckError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .Storage(v1):
+            writeInt(&buf, Int32(1))
+            FfiConverterTypeStorageError.write(v1, into: &buf)
+            
+        
+        case .ConstraintTooDeep:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .ConstraintTooLarge:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCredentialConstraintsCheckError_lift(_ buf: RustBuffer) throws -> CredentialConstraintsCheckError {
+    return try FfiConverterTypeCredentialConstraintsCheckError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCredentialConstraintsCheckError_lower(_ value: CredentialConstraintsCheckError) -> RustBuffer {
+    return FfiConverterTypeCredentialConstraintsCheckError.lower(value)
+}
 
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
@@ -8710,6 +8976,31 @@ fileprivate struct FfiConverterOptionTypeRegion: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeCredentialConstraintsCheckItem: FfiConverterRustBuffer {
+    typealias SwiftType = [CredentialConstraintsCheckItem]
+
+    public static func write(_ value: [CredentialConstraintsCheckItem], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeCredentialConstraintsCheckItem.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [CredentialConstraintsCheckItem] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [CredentialConstraintsCheckItem]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeCredentialConstraintsCheckItem.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeCredentialRecord: FfiConverterRustBuffer {
     typealias SwiftType = [CredentialRecord]
 
@@ -8906,6 +9197,27 @@ public func initLogging(logger: Logger, level: LogLevel?)  {try! rustCall() {
 }
 }
 /**
+ * Checks whether `store` holds the credentials required to fulfill `request`.
+ *
+ * See the [module-level documentation](self) for a full description of the
+ * evaluation logic and intended usage.
+ *
+ * # Errors
+ *
+ * - [`CredentialConstraintsCheckError::Storage`] if the credential store query fails.
+ * - [`CredentialConstraintsCheckError::ConstraintTooDeep`] if the constraint tree exceeds depth 2.
+ * - [`CredentialConstraintsCheckError::ConstraintTooLarge`] if the constraint tree exceeds the node limit.
+ */
+public func checkCredentialsAgainstProofRequest(request: ProofRequest, store: CredentialStore, now: UInt64)throws  -> CredentialConstraintsCheckResult  {
+    return try  FfiConverterTypeCredentialConstraintsCheckResult_lift(try rustCallWithError(FfiConverterTypeCredentialConstraintsCheckError_lift) {
+    uniffi_walletkit_core_fn_func_check_credentials_against_proof_request(
+        FfiConverterTypeProofRequest_lower(request),
+        FfiConverterTypeCredentialStore_lower(store),
+        FfiConverterUInt64.lower(now),$0
+    )
+})
+}
+/**
  * Writes embedded Groth16 material to the cache paths managed by [`StoragePaths`].
  *
  * This operation is idempotent and atomically rewrites all managed files.
@@ -8943,6 +9255,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_func_init_logging() != 19546) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_func_check_credentials_against_proof_request() != 4769) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_func_cache_embedded_groth16_material() != 10840) {

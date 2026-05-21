@@ -1351,6 +1351,32 @@ public static func initWithDefaults(seed: Data, rpcUrl: String?, environment: En
         )
 }
     
+    /**
+     * Initializes a new Authenticator from a seed using SDK defaults routed
+     * through the OHTTP relay. Opt-in alternative to
+     * [`Authenticator::init_with_defaults`].
+     *
+     * The user's World ID must already be registered in the `WorldIDRegistry`,
+     * otherwise a [`WalletKitError::AccountDoesNotExist`] error will be returned.
+     *
+     * # Errors
+     * See `CoreAuthenticator::init` for potential errors.
+     */
+public static func initWithOhttpDefaults(seed: Data, rpcUrl: String?, environment: Environment, region: Region?, materials: Groth16Materials, store: CredentialStore)async throws  -> Authenticator  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_constructor_authenticator_init_with_ohttp_defaults(FfiConverterData.lower(seed),FfiConverterOptionString.lower(rpcUrl),FfiConverterTypeEnvironment_lower(environment),FfiConverterOptionTypeRegion.lower(region),FfiConverterTypeGroth16Materials_lower(materials),FfiConverterTypeCredentialStore_lower(store)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_u64,
+            completeFunc: ffi_walletkit_core_rust_future_complete_u64,
+            freeFunc: ffi_walletkit_core_rust_future_free_u64,
+            liftFunc: FfiConverterTypeAuthenticator_lift,
+            errorHandler: FfiConverterTypeWalletKitError_lift
+        )
+}
+    
 
     
     /**
@@ -3176,6 +3202,32 @@ public static func registerWithDefaults(seed: Data, rpcUrl: String?, environment
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_walletkit_core_fn_constructor_initializingauthenticator_register_with_defaults(FfiConverterData.lower(seed),FfiConverterOptionString.lower(rpcUrl),FfiConverterTypeEnvironment_lower(environment),FfiConverterOptionTypeRegion.lower(region),FfiConverterOptionString.lower(recoveryAddress)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_u64,
+            completeFunc: ffi_walletkit_core_rust_future_complete_u64,
+            freeFunc: ffi_walletkit_core_rust_future_free_u64,
+            liftFunc: FfiConverterTypeInitializingAuthenticator_lift,
+            errorHandler: FfiConverterTypeWalletKitError_lift
+        )
+}
+    
+    /**
+     * Registers a new World ID using SDK defaults routed through the OHTTP
+     * relay. Opt-in alternative to
+     * [`InitializingAuthenticator::register_with_defaults`].
+     *
+     * This returns immediately and does not wait for registration to complete.
+     * The returned `InitializingAuthenticator` can be used to poll the registration status.
+     *
+     * # Errors
+     * See `CoreAuthenticator::register` for potential errors.
+     */
+public static func registerWithOhttpDefaults(seed: Data, rpcUrl: String?, environment: Environment, region: Region?, recoveryAddress: String?)async throws  -> InitializingAuthenticator  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_constructor_initializingauthenticator_register_with_ohttp_defaults(FfiConverterData.lower(seed),FfiConverterOptionString.lower(rpcUrl),FfiConverterTypeEnvironment_lower(environment),FfiConverterOptionTypeRegion.lower(region),FfiConverterOptionString.lower(recoveryAddress)
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_u64,
@@ -8566,6 +8618,10 @@ public enum WalletKitError: Swift.Error, Equatable, Hashable, Foundation.Localiz
          * The error message from the OHTTP layer
          */error: String
     )
+    /**
+     * The session proof action or session OPRF seed is not valid for the session OPRF module.
+     */
+    case InvalidActionSession
 
     
 
@@ -8655,6 +8711,7 @@ public struct FfiConverterTypeWalletKitError: FfiConverterRustBuffer {
         case 32: return .OhttpError(
             error: try FfiConverterString.read(from: &buf)
             )
+        case 33: return .InvalidActionSession
 
          default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -8810,6 +8867,10 @@ public struct FfiConverterTypeWalletKitError: FfiConverterRustBuffer {
             writeInt(&buf, Int32(32))
             FfiConverterString.write(error, into: &buf)
             
+        
+        case .InvalidActionSession:
+            writeInt(&buf, Int32(33))
+        
         }
     }
 }
@@ -9515,6 +9576,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_constructor_authenticator_init_with_defaults() != 47709) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_constructor_authenticator_init_with_ohttp_defaults() != 35089) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_constructor_groth16materials_from_cache() != 54053) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9525,6 +9589,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_initializingauthenticator_register_with_defaults() != 45761) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_constructor_initializingauthenticator_register_with_ohttp_defaults() != 53643) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_credential_from_bytes() != 47479) {

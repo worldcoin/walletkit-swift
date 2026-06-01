@@ -5826,6 +5826,11 @@ public func FfiConverterTypeTfhNfcIssuer_lower(_ value: TfhNfcIssuer) -> UInt64 
  */
 public protocol UserAgentProtocol: AnyObject, Sendable {
     
+    /**
+     * Returns the header value for FFI consumers.
+     */
+    func headerValue()  -> String
+    
 }
 /**
  * Represents a User-Agent string.
@@ -5882,6 +5887,17 @@ open class UserAgent: UserAgentProtocol, @unchecked Sendable {
 
     
 
+    
+    /**
+     * Returns the header value for FFI consumers.
+     */
+open func headerValue() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_useragent_header_value(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
     
 
     
@@ -5946,6 +5962,19 @@ public protocol UserAgentBuilderProtocol: AnyObject, Sendable {
      * Finalizes the header value as [`UserAgent`].
      */
     func build()  -> UserAgent
+    
+    /**
+     * Appends the app product segment for the client name.
+     *
+     * Uses `WorldID/{app_version}` for World ID app clients (`android-id` / `ios-id`),
+     * and `WorldApp/{app_version}` for all other clients.
+     */
+    func withAppSegmentForClient(appVersion: String, clientName: String)  -> UserAgentBuilder
+    
+    /**
+     * Appends `{client_name}/{os_version}` to match the app client suffix convention.
+     */
+    func withClientSegment(clientName: String, osVersion: String)  -> UserAgentBuilder
     
     /**
      * Appends `{product}/{version}` (e.g. `WorldApp/2.1`, `Chrome/120`). No-op if either side is empty after trim.
@@ -6035,6 +6064,35 @@ open func build() -> UserAgent  {
     return try!  FfiConverterTypeUserAgent_lift(try! rustCall() {
     uniffi_walletkit_core_fn_method_useragentbuilder_build(
             self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Appends the app product segment for the client name.
+     *
+     * Uses `WorldID/{app_version}` for World ID app clients (`android-id` / `ios-id`),
+     * and `WorldApp/{app_version}` for all other clients.
+     */
+open func withAppSegmentForClient(appVersion: String, clientName: String) -> UserAgentBuilder  {
+    return try!  FfiConverterTypeUserAgentBuilder_lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_useragentbuilder_with_app_segment_for_client(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(appVersion),
+        FfiConverterString.lower(clientName),$0
+    )
+})
+}
+    
+    /**
+     * Appends `{client_name}/{os_version}` to match the app client suffix convention.
+     */
+open func withClientSegment(clientName: String, osVersion: String) -> UserAgentBuilder  {
+    return try!  FfiConverterTypeUserAgentBuilder_lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_useragentbuilder_with_client_segment(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(clientName),
+        FfiConverterString.lower(osVersion),$0
     )
 })
 }
@@ -9522,7 +9580,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_vaultchangedlistener_on_vault_changed() != 30325) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_method_useragent_header_value() != 52067) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_method_useragentbuilder_build() != 34488) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_useragentbuilder_with_app_segment_for_client() != 53904) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_useragentbuilder_with_client_segment() != 4506) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_useragentbuilder_with_segment() != 52442) {

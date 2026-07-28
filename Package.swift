@@ -27,9 +27,9 @@ let package = Package(
         ),
         .binaryTarget(
             name: "walletkit_coreFFI",
-            url: "https://api.github.com/repos/worldcoin/walletkit-swift/releases/assets/488565652.zip",
-            checksum: "38174f7fc0d181763d3ea2a9a589bcfcca05eac049e2aaa36969c09a501482b4"
+            url: "https://api.github.com/repos/worldcoin/walletkit-swift/releases/assets/492635409.zip",
+            checksum: "aeb94979343cfef899726021292fb0d439b0684ccf8253823e7f4692790825c1"
         )
     ]
 )
-// Release version: 0.20.3
+// Release version: 0.20.4

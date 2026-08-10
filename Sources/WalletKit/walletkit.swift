@@ -1064,19 +1064,6 @@ public func FfiConverterTypeAtomicBlobStore_lower(_ value: AtomicBlobStore) -> U
 public protocol AuthenticatorProtocol: AnyObject, Sendable {
     
     /**
-     * Cancels a pending time-locked recovery agent update before the cooldown
-     * expires.
-     *
-     * Signs an EIP-712 `CancelRecoveryAgentUpdate` payload and submits it to
-     * the gateway. Returns the gateway request ID that can be used to poll
-     * status.
-     *
-     * # Errors
-     * Returns a network error if the gateway request fails.
-     */
-    func cancelRecoveryAgentUpdate() async throws  -> String
-    
-    /**
      * Compute the `sub` for a credential from the authenticator's leaf index and a `blinding_factor`.
      */
     func computeCredentialSub(blindingFactor: FieldElement)  -> FieldElement
@@ -1100,9 +1087,8 @@ public protocol AuthenticatorProtocol: AnyObject, Sendable {
      * raw signature bytes and signing nonce without submitting anything to the
      * gateway.
      *
-     * This is the signing-only counterpart of [`Self::initiate_recovery_agent_update`].
-     * Callers can use the returned bytes to build and submit the gateway request
-     * themselves.
+     * Callers can use the returned bytes to build and submit the gateway
+     * request themselves.
      *
      * # Warning
      * This method uses the `onchain_signer` (secp256k1 ECDSA) and produces a
@@ -1122,21 +1108,6 @@ public protocol AuthenticatorProtocol: AnyObject, Sendable {
      * - Returns an error if the nonce fetch or signing step fails.
      */
     func dangerSignInitiateRecoveryAgentUpdate(newRecoveryAgent: String) async throws  -> RecoveryUpdateSignature
-    
-    /**
-     * Executes a pending recovery agent update after the 14-day cooldown has
-     * elapsed.
-     *
-     * This call is **permissionless** — no signature is required. The contract
-     * enforces the cooldown and will revert with
-     * `RecoveryAgentUpdateStillInCooldown` if called too early.
-     *
-     * Returns the gateway request ID that can be used to poll status.
-     *
-     * # Errors
-     * Returns a network error if the gateway request fails.
-     */
-    func executeRecoveryAgentUpdate() async throws  -> String
     
     /**
      * Generates a blinding factor for a Credential sub (through OPRF Nodes).
@@ -1165,24 +1136,6 @@ public protocol AuthenticatorProtocol: AnyObject, Sendable {
      * Will error if the provided RPC URL is not valid or if there are RPC call failures.
      */
     func getPackedAccountDataRemote() async throws  -> Uint256
-    
-    /**
-     * Initiates a time-locked recovery agent update (14-day cooldown).
-     *
-     * Signs an EIP-712 `InitiateRecoveryAgentUpdate` payload and submits it to
-     * the gateway. Returns the gateway request ID that can be used to poll
-     * status.
-     *
-     * # Arguments
-     * * `new_recovery_agent` — the checksummed hex address of the new recovery
-     * agent (e.g. `"0x1234…"`).
-     *
-     * # Errors
-     * - Returns [`WalletKitError::InvalidInput`] if `new_recovery_agent` is not
-     * a valid address.
-     * - Returns a network error if the gateway request fails.
-     */
-    func initiateRecoveryAgentUpdate(newRecoveryAgent: String) async throws  -> String
     
     /**
      * Returns the leaf index for the holder's World ID.
@@ -1234,6 +1187,44 @@ public protocol AuthenticatorProtocol: AnyObject, Sendable {
      * - Returns [`WalletKitError::ProofGeneration`] if the ZK proof fails.
      */
     func proveCredentialSub(nonce: FieldElement, blindingFactor: FieldElement, sub: FieldElement) async throws  -> OwnershipProof
+    
+    /**
+     * Reverts an in-flight recovery agent update during the revert window
+     * (WIP-102).
+     *
+     * Must be called within the revert window after
+     * [`Self::update_recovery_agent`]. During that window any authenticator
+     * can revert the update; the previous recovery agent stays effective
+     * until the window expires.
+     *
+     * Signs an EIP-712 `CancelRecoveryAgentUpdate` payload (the typehash is
+     * reused on V2) and submits it to the gateway.
+     *
+     * # Errors
+     * Returns a network error if the gateway request fails.
+     */
+    func revertRecoveryAgentUpdate() async throws  -> String
+    
+    /**
+     * Updates the holder's recovery agent (WIP-102).
+     *
+     * On a V2 registry the new agent becomes effective immediately, but for a
+     * revert window any authenticator can call
+     * [`Self::revert_recovery_agent_update`] to roll back. During that window
+     * the *previous* agent remains the only valid signer for `recoverAccount`,
+     * which mitigates a compromised authenticator silently swapping in an
+     * attacker-controlled recovery address.
+     *
+     * # Arguments
+     * * `new_recovery_agent` — the checksummed hex address of the new recovery
+     * agent (e.g. `"0x1234…"`).
+     *
+     * # Errors
+     * - Returns [`WalletKitError::InvalidInput`] if `new_recovery_agent` is not
+     * a valid address.
+     * - Returns a network error if the gateway request fails.
+     */
+    func updateRecoveryAgent(newRecoveryAgent: String) async throws  -> String
     
     /**
      * Permanently destroys all credential storage data.
@@ -1321,11 +1312,11 @@ open class Authenticator: AuthenticatorProtocol, @unchecked Sendable {
      * # Errors
      * Will error if the provided seed is not valid or if the config is not valid.
      */
-public static func `init`(seed: Data, config: String, materials: Groth16Materials, store: CredentialStore)async throws  -> Authenticator  {
+public static func `init`(seed: Data, config: String, artifacts: WalletKitZkArtifactSource, store: CredentialStore)async throws  -> Authenticator  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_walletkit_core_fn_constructor_authenticator_init(FfiConverterData.lower(seed),FfiConverterString.lower(config),FfiConverterTypeGroth16Materials_lower(materials),FfiConverterTypeCredentialStore_lower(store)
+                uniffi_walletkit_core_fn_constructor_authenticator_init(FfiConverterData.lower(seed),FfiConverterString.lower(config),FfiConverterTypeWalletKitZkArtifactSource_lower(artifacts),FfiConverterTypeCredentialStore_lower(store)
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_u64,
@@ -1345,11 +1336,11 @@ public static func `init`(seed: Data, config: String, materials: Groth16Material
      * # Errors
      * See `CoreAuthenticator::init` for potential errors.
      */
-public static func initWithDefaults(seed: Data, rpcUrl: String?, environment: Environment, region: Region?, materials: Groth16Materials, store: CredentialStore)async throws  -> Authenticator  {
+public static func initWithDefaults(seed: Data, rpcUrl: String?, environment: Environment, region: Region?, artifacts: WalletKitZkArtifactSource, store: CredentialStore)async throws  -> Authenticator  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_walletkit_core_fn_constructor_authenticator_init_with_defaults(FfiConverterData.lower(seed),FfiConverterOptionString.lower(rpcUrl),FfiConverterTypeEnvironment_lower(environment),FfiConverterOptionTypeRegion.lower(region),FfiConverterTypeGroth16Materials_lower(materials),FfiConverterTypeCredentialStore_lower(store)
+                uniffi_walletkit_core_fn_constructor_authenticator_init_with_defaults(FfiConverterData.lower(seed),FfiConverterOptionString.lower(rpcUrl),FfiConverterTypeEnvironment_lower(environment),FfiConverterOptionTypeRegion.lower(region),FfiConverterTypeWalletKitZkArtifactSource_lower(artifacts),FfiConverterTypeCredentialStore_lower(store)
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_u64,
@@ -1371,11 +1362,11 @@ public static func initWithDefaults(seed: Data, rpcUrl: String?, environment: En
      * # Errors
      * See `CoreAuthenticator::init` for potential errors.
      */
-public static func initWithOhttpDefaults(seed: Data, rpcUrl: String?, environment: Environment, region: Region?, materials: Groth16Materials, store: CredentialStore)async throws  -> Authenticator  {
+public static func initWithOhttpDefaults(seed: Data, rpcUrl: String?, environment: Environment, region: Region?, artifacts: WalletKitZkArtifactSource, store: CredentialStore)async throws  -> Authenticator  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_walletkit_core_fn_constructor_authenticator_init_with_ohttp_defaults(FfiConverterData.lower(seed),FfiConverterOptionString.lower(rpcUrl),FfiConverterTypeEnvironment_lower(environment),FfiConverterOptionTypeRegion.lower(region),FfiConverterTypeGroth16Materials_lower(materials),FfiConverterTypeCredentialStore_lower(store)
+                uniffi_walletkit_core_fn_constructor_authenticator_init_with_ohttp_defaults(FfiConverterData.lower(seed),FfiConverterOptionString.lower(rpcUrl),FfiConverterTypeEnvironment_lower(environment),FfiConverterOptionTypeRegion.lower(region),FfiConverterTypeWalletKitZkArtifactSource_lower(artifacts),FfiConverterTypeCredentialStore_lower(store)
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_u64,
@@ -1387,34 +1378,6 @@ public static func initWithOhttpDefaults(seed: Data, rpcUrl: String?, environmen
 }
     
 
-    
-    /**
-     * Cancels a pending time-locked recovery agent update before the cooldown
-     * expires.
-     *
-     * Signs an EIP-712 `CancelRecoveryAgentUpdate` payload and submits it to
-     * the gateway. Returns the gateway request ID that can be used to poll
-     * status.
-     *
-     * # Errors
-     * Returns a network error if the gateway request fails.
-     */
-open func cancelRecoveryAgentUpdate()async throws  -> String  {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_walletkit_core_fn_method_authenticator_cancel_recovery_agent_update(
-                    self.uniffiCloneHandle()
-                    
-                )
-            },
-            pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
-            completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
-            freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
-            liftFunc: FfiConverterString.lift,
-            errorHandler: FfiConverterTypeWalletKitError_lift
-        )
-}
     
     /**
      * Compute the `sub` for a credential from the authenticator's leaf index and a `blinding_factor`.
@@ -1454,9 +1417,8 @@ open func dangerSignChallenge(challenge: Data)throws  -> Data  {
      * raw signature bytes and signing nonce without submitting anything to the
      * gateway.
      *
-     * This is the signing-only counterpart of [`Self::initiate_recovery_agent_update`].
-     * Callers can use the returned bytes to build and submit the gateway request
-     * themselves.
+     * Callers can use the returned bytes to build and submit the gateway
+     * request themselves.
      *
      * # Warning
      * This method uses the `onchain_signer` (secp256k1 ECDSA) and produces a
@@ -1488,36 +1450,6 @@ open func dangerSignInitiateRecoveryAgentUpdate(newRecoveryAgent: String)async t
             completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeRecoveryUpdateSignature_lift,
-            errorHandler: FfiConverterTypeWalletKitError_lift
-        )
-}
-    
-    /**
-     * Executes a pending recovery agent update after the 14-day cooldown has
-     * elapsed.
-     *
-     * This call is **permissionless** — no signature is required. The contract
-     * enforces the cooldown and will revert with
-     * `RecoveryAgentUpdateStillInCooldown` if called too early.
-     *
-     * Returns the gateway request ID that can be used to poll status.
-     *
-     * # Errors
-     * Returns a network error if the gateway request fails.
-     */
-open func executeRecoveryAgentUpdate()async throws  -> String  {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_walletkit_core_fn_method_authenticator_execute_recovery_agent_update(
-                    self.uniffiCloneHandle()
-                    
-                )
-            },
-            pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
-            completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
-            freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
-            liftFunc: FfiConverterString.lift,
             errorHandler: FfiConverterTypeWalletKitError_lift
         )
 }
@@ -1591,39 +1523,6 @@ open func getPackedAccountDataRemote()async throws  -> Uint256  {
             completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeUint256_lift,
-            errorHandler: FfiConverterTypeWalletKitError_lift
-        )
-}
-    
-    /**
-     * Initiates a time-locked recovery agent update (14-day cooldown).
-     *
-     * Signs an EIP-712 `InitiateRecoveryAgentUpdate` payload and submits it to
-     * the gateway. Returns the gateway request ID that can be used to poll
-     * status.
-     *
-     * # Arguments
-     * * `new_recovery_agent` — the checksummed hex address of the new recovery
-     * agent (e.g. `"0x1234…"`).
-     *
-     * # Errors
-     * - Returns [`WalletKitError::InvalidInput`] if `new_recovery_agent` is not
-     * a valid address.
-     * - Returns a network error if the gateway request fails.
-     */
-open func initiateRecoveryAgentUpdate(newRecoveryAgent: String)async throws  -> String  {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_walletkit_core_fn_method_authenticator_initiate_recovery_agent_update(
-                    self.uniffiCloneHandle(),
-                    FfiConverterString.lower(newRecoveryAgent)
-                )
-            },
-            pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
-            completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
-            freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
-            liftFunc: FfiConverterString.lift,
             errorHandler: FfiConverterTypeWalletKitError_lift
         )
 }
@@ -1713,6 +1612,74 @@ open func proveCredentialSub(nonce: FieldElement, blindingFactor: FieldElement, 
 }
     
     /**
+     * Reverts an in-flight recovery agent update during the revert window
+     * (WIP-102).
+     *
+     * Must be called within the revert window after
+     * [`Self::update_recovery_agent`]. During that window any authenticator
+     * can revert the update; the previous recovery agent stays effective
+     * until the window expires.
+     *
+     * Signs an EIP-712 `CancelRecoveryAgentUpdate` payload (the typehash is
+     * reused on V2) and submits it to the gateway.
+     *
+     * # Errors
+     * Returns a network error if the gateway request fails.
+     */
+open func revertRecoveryAgentUpdate()async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_authenticator_revert_recovery_agent_update(
+                    self.uniffiCloneHandle()
+                    
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeWalletKitError_lift
+        )
+}
+    
+    /**
+     * Updates the holder's recovery agent (WIP-102).
+     *
+     * On a V2 registry the new agent becomes effective immediately, but for a
+     * revert window any authenticator can call
+     * [`Self::revert_recovery_agent_update`] to roll back. During that window
+     * the *previous* agent remains the only valid signer for `recoverAccount`,
+     * which mitigates a compromised authenticator silently swapping in an
+     * attacker-controlled recovery address.
+     *
+     * # Arguments
+     * * `new_recovery_agent` — the checksummed hex address of the new recovery
+     * agent (e.g. `"0x1234…"`).
+     *
+     * # Errors
+     * - Returns [`WalletKitError::InvalidInput`] if `new_recovery_agent` is not
+     * a valid address.
+     * - Returns a network error if the gateway request fails.
+     */
+open func updateRecoveryAgent(newRecoveryAgent: String)async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_authenticator_update_recovery_agent(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(newRecoveryAgent)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeWalletKitError_lift
+        )
+}
+    
+    /**
      * Permanently destroys all credential storage data.
      *
      * Removes the encryption keys, vault database, and cache database.
@@ -1788,6 +1755,308 @@ public func FfiConverterTypeAuthenticator_lift(_ handle: UInt64) throws -> Authe
 #endif
 public func FfiConverterTypeAuthenticator_lower(_ value: Authenticator) -> UInt64 {
     return FfiConverterTypeAuthenticator.lower(value)
+}
+
+
+
+
+
+
+/**
+ * A crate specific source for ZK Artifacts
+ *
+ * Loads ZK Artifacts from embedded data & caches the resulting artifacts (for the Query &
+ * Nullifier proofs) on the filesystem.
+ *
+ * Primary reason for caching is amortization of decompression costs.
+ */
+public protocol CachingZkArtifactsProtocol: AnyObject, Sendable {
+    
+    /**
+     * Returns this caching implementation as a `WalletKit` ZK artifact source.
+     *
+     * This explicit conversion is required by foreign-language bindings, which do not preserve
+     * Rust blanket trait implementations as class inheritance.
+     */
+    func asZkArtifactSource()  -> WalletKitZkArtifactSource
+    
+    /**
+     * Preloads the nullifier & query materials and caches them to the filesystem.
+     *
+     * In practice - this methods loads the materials using the normal path and discards the
+     * results.
+     *
+     * # Errors
+     * This method can return an error if a filesystem operation fails when loading the cached
+     * artifacts.
+     */
+    func preload() throws 
+    
+}
+/**
+ * A crate specific source for ZK Artifacts
+ *
+ * Loads ZK Artifacts from embedded data & caches the resulting artifacts (for the Query &
+ * Nullifier proofs) on the filesystem.
+ *
+ * Primary reason for caching is amortization of decompression costs.
+ */
+open class CachingZkArtifacts: CachingZkArtifactsProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_cachingzkartifacts(self.handle, $0) }
+    }
+    /**
+     * Constructs a new [`CachingZkArtifacts`]
+     */
+public convenience init(storagePaths: StoragePaths) {
+    let handle =
+        try! rustCall() {
+    uniffi_walletkit_core_fn_constructor_cachingzkartifacts_new(
+        FfiConverterTypeStoragePaths_lower(storagePaths),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_cachingzkartifacts(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Returns this caching implementation as a `WalletKit` ZK artifact source.
+     *
+     * This explicit conversion is required by foreign-language bindings, which do not preserve
+     * Rust blanket trait implementations as class inheritance.
+     */
+open func asZkArtifactSource() -> WalletKitZkArtifactSource  {
+    return try!  FfiConverterTypeWalletKitZkArtifactSource_lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_cachingzkartifacts_as_zk_artifact_source(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Preloads the nullifier & query materials and caches them to the filesystem.
+     *
+     * In practice - this methods loads the materials using the normal path and discards the
+     * results.
+     *
+     * # Errors
+     * This method can return an error if a filesystem operation fails when loading the cached
+     * artifacts.
+     */
+open func preload()throws   {try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+    uniffi_walletkit_core_fn_method_cachingzkartifacts_preload(
+            self.uniffiCloneHandle(),$0
+    )
+}
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCachingZkArtifacts: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = CachingZkArtifacts
+
+    public static func lift(_ handle: UInt64) throws -> CachingZkArtifacts {
+        return CachingZkArtifacts(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: CachingZkArtifacts) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CachingZkArtifacts {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: CachingZkArtifacts, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCachingZkArtifacts_lift(_ handle: UInt64) throws -> CachingZkArtifacts {
+    return try FfiConverterTypeCachingZkArtifacts.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCachingZkArtifacts_lower(_ value: CachingZkArtifacts) -> UInt64 {
+    return FfiConverterTypeCachingZkArtifacts.lower(value)
+}
+
+
+
+
+
+
+/**
+ * An inner implementation layer of the caching zk artifacts source.
+ *
+ * It implements the caching logic & exists to be wrapped by the `CachedZkArtifactSource` which
+ * provides in-memory caching of the artifacts.
+ */
+public protocol CachingZkArtifactsInnerProtocol: AnyObject, Sendable {
+    
+}
+/**
+ * An inner implementation layer of the caching zk artifacts source.
+ *
+ * It implements the caching logic & exists to be wrapped by the `CachedZkArtifactSource` which
+ * provides in-memory caching of the artifacts.
+ */
+open class CachingZkArtifactsInner: CachingZkArtifactsInnerProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_cachingzkartifactsinner(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_cachingzkartifactsinner(handle, $0) }
+    }
+
+    
+
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCachingZkArtifactsInner: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = CachingZkArtifactsInner
+
+    public static func lift(_ handle: UInt64) throws -> CachingZkArtifactsInner {
+        return CachingZkArtifactsInner(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: CachingZkArtifactsInner) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CachingZkArtifactsInner {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: CachingZkArtifactsInner, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCachingZkArtifactsInner_lift(_ handle: UInt64) throws -> CachingZkArtifactsInner {
+    return try FfiConverterTypeCachingZkArtifactsInner.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCachingZkArtifactsInner_lower(_ value: CachingZkArtifactsInner) -> UInt64 {
+    return FfiConverterTypeCachingZkArtifactsInner.lower(value)
 }
 
 
@@ -2749,6 +3018,154 @@ public func FfiConverterTypeDeviceKeystore_lower(_ value: DeviceKeystore) -> UIn
 
 
 /**
+ * A wrapper around `world_id_proof::artifacts::EmbeddedZkArtifacts`
+ *
+ * that can be constructed by crate consumers
+ */
+public protocol EmbeddedZkArtifactsProtocol: AnyObject, Sendable {
+    
+    /**
+     * Returns this caching implementation as a `WalletKit` ZK artifact source.
+     *
+     * This explicit conversion is required by foreign-language bindings, which do not preserve
+     * Rust blanket trait implementations as class inheritance.
+     */
+    func asZkArtifactSource()  -> WalletKitZkArtifactSource
+    
+}
+/**
+ * A wrapper around `world_id_proof::artifacts::EmbeddedZkArtifacts`
+ *
+ * that can be constructed by crate consumers
+ */
+open class EmbeddedZkArtifacts: EmbeddedZkArtifactsProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_embeddedzkartifacts(self.handle, $0) }
+    }
+    /**
+     * Constructs a new [`EmbeddedZkArtifacts`]
+     */
+public convenience init() {
+    let handle =
+        try! rustCall() {
+    uniffi_walletkit_core_fn_constructor_embeddedzkartifacts_new($0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_embeddedzkartifacts(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Returns this caching implementation as a `WalletKit` ZK artifact source.
+     *
+     * This explicit conversion is required by foreign-language bindings, which do not preserve
+     * Rust blanket trait implementations as class inheritance.
+     */
+open func asZkArtifactSource() -> WalletKitZkArtifactSource  {
+    return try!  FfiConverterTypeWalletKitZkArtifactSource_lift(try! rustCall() {
+    uniffi_walletkit_core_fn_method_embeddedzkartifacts_as_zk_artifact_source(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEmbeddedZkArtifacts: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = EmbeddedZkArtifacts
+
+    public static func lift(_ handle: UInt64) throws -> EmbeddedZkArtifacts {
+        return EmbeddedZkArtifacts(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: EmbeddedZkArtifacts) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EmbeddedZkArtifacts {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: EmbeddedZkArtifacts, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEmbeddedZkArtifacts_lift(_ handle: UInt64) throws -> EmbeddedZkArtifacts {
+    return try FfiConverterTypeEmbeddedZkArtifacts.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEmbeddedZkArtifacts_lower(_ value: EmbeddedZkArtifacts) -> UInt64 {
+    return FfiConverterTypeEmbeddedZkArtifacts.lower(value)
+}
+
+
+
+
+
+
+/**
  * A wrapper around `FieldElement` to enable FFI interoperability.
  *
  * `FieldElement` represents an element in a finite field used in the World ID Protocol's
@@ -2946,156 +3363,6 @@ public func FfiConverterTypeFieldElement_lift(_ handle: UInt64) throws -> FieldE
 #endif
 public func FfiConverterTypeFieldElement_lower(_ value: FieldElement) -> UInt64 {
     return FfiConverterTypeFieldElement.lower(value)
-}
-
-
-
-
-
-
-/**
- * ZK Proof material for both Groth16 proofs (query & nullifier proofs)
- */
-public protocol Groth16MaterialsProtocol: AnyObject, Sendable {
-    
-}
-/**
- * ZK Proof material for both Groth16 proofs (query & nullifier proofs)
- */
-open class Groth16Materials: Groth16MaterialsProtocol, @unchecked Sendable {
-    fileprivate let handle: UInt64
-
-    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public struct NoHandle {
-        public init() {}
-    }
-
-    // TODO: We'd like this to be `private` but for Swifty reasons,
-    // we can't implement `FfiConverter` without making this `required` and we can't
-    // make it `required` without making it `public`.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    required public init(unsafeFromHandle handle: UInt64) {
-        self.handle = handle
-    }
-
-    // This constructor can be used to instantiate a fake object.
-    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
-    //
-    // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public init(noHandle: NoHandle) {
-        self.handle = 0
-    }
-
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public func uniffiCloneHandle() -> UInt64 {
-        return try! rustCall { uniffi_walletkit_core_fn_clone_groth16materials(self.handle, $0) }
-    }
-    // No primary constructor declared for this class.
-
-    deinit {
-        if handle == 0 {
-            // Mock objects have handle=0 don't try to free them
-            return
-        }
-
-        try! rustCall { uniffi_walletkit_core_fn_free_groth16materials(handle, $0) }
-    }
-
-    
-    /**
-     * Loads Groth16 material from cached files on disk.
-     *
-     * Use `storage::cache_embedded_groth16_material` (requires the `embed-zkeys` feature)
-     * to populate the cache before calling this.
-     *
-     * Not available on WASM (no filesystem).
-     *
-     * # Errors
-     *
-     * Returns an error if the cached files cannot be read or verified.
-     */
-public static func fromCache(paths: StoragePaths)throws  -> Groth16Materials  {
-    return try  FfiConverterTypeGroth16Materials_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
-    uniffi_walletkit_core_fn_constructor_groth16materials_from_cache(
-        FfiConverterTypeStoragePaths_lower(paths),$0
-    )
-})
-}
-    
-    /**
-     * Loads Groth16 material from the embedded (compiled-in) zkeys and graphs.
-     *
-     * Requires the `embed-zkeys` feature. The material is baked into the binary at
-     * compile time so no filesystem access is required, and this works on every
-     * platform including WASM.
-     *
-     * # Errors
-     *
-     * Returns an error if the embedded material cannot be loaded or verified.
-     */
-public static func fromEmbedded()throws  -> Groth16Materials  {
-    return try  FfiConverterTypeGroth16Materials_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
-    uniffi_walletkit_core_fn_constructor_groth16materials_from_embedded($0
-    )
-})
-}
-    
-
-    
-
-    
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeGroth16Materials: FfiConverter {
-    typealias FfiType = UInt64
-    typealias SwiftType = Groth16Materials
-
-    public static func lift(_ handle: UInt64) throws -> Groth16Materials {
-        return Groth16Materials(unsafeFromHandle: handle)
-    }
-
-    public static func lower(_ value: Groth16Materials) -> UInt64 {
-        return value.uniffiCloneHandle()
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Groth16Materials {
-        let handle: UInt64 = try readInt(&buf)
-        return try lift(handle)
-    }
-
-    public static func write(_ value: Groth16Materials, into buf: inout [UInt8]) {
-        writeInt(&buf, lower(value))
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeGroth16Materials_lift(_ handle: UInt64) throws -> Groth16Materials {
-    return try FfiConverterTypeGroth16Materials.lift(handle)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeGroth16Materials_lower(_ value: Groth16Materials) -> UInt64 {
-    return FfiConverterTypeGroth16Materials.lower(value)
 }
 
 
@@ -4847,7 +5114,8 @@ public protocol RecoveryBindingManagerProtocol: AnyObject, Sendable {
      *
      * Returns an error if the challenge fetch, signing, or backend request fails,
      * or if the user is not eligible for recovery ([`WalletKitError::NotEligibleForRecovery`]).
-     * or if the debug report is not found ([`WalletKitError::DebugReportNotFound`]).
+     * or if the user fails the eligibility check ([`WalletKitError::IdentityNotFound`],
+     * [`WalletKitError::NoSuccessfulCaptureFound`], [`WalletKitError::DebugReportNotFound`]).
      * or if any other unexpected error occurs ([`WalletKitError::NetworkError`]).
      */
     func bindRecoveryAgent(authenticator: Authenticator, sub: String, recoveryAgentAddress: String) async throws 
@@ -4986,7 +5254,8 @@ public static func newWithBaseUrl(baseUrl: String, userAgentBuilder: UserAgentBu
      *
      * Returns an error if the challenge fetch, signing, or backend request fails,
      * or if the user is not eligible for recovery ([`WalletKitError::NotEligibleForRecovery`]).
-     * or if the debug report is not found ([`WalletKitError::DebugReportNotFound`]).
+     * or if the user fails the eligibility check ([`WalletKitError::IdentityNotFound`],
+     * [`WalletKitError::NoSuccessfulCaptureFound`], [`WalletKitError::DebugReportNotFound`]).
      * or if any other unexpected error occurs ([`WalletKitError::NetworkError`]).
      */
 open func bindRecoveryAgent(authenticator: Authenticator, sub: String, recoveryAgentAddress: String)async throws   {
@@ -6429,6 +6698,120 @@ public func FfiConverterTypeVaultChangedListener_lift(_ handle: UInt64) throws -
 #endif
 public func FfiConverterTypeVaultChangedListener_lower(_ value: VaultChangedListener) -> UInt64 {
     return FfiConverterTypeVaultChangedListener.lower(value)
+}
+
+
+
+
+
+
+/**
+ * A blanket implementation interface that allows the ZK Artifact source implementations to be
+ * used by methods exposed to walletkit consumers.
+ */
+public protocol WalletKitZkArtifactSourceProtocol: AnyObject, Sendable {
+    
+}
+/**
+ * A blanket implementation interface that allows the ZK Artifact source implementations to be
+ * used by methods exposed to walletkit consumers.
+ */
+open class WalletKitZkArtifactSource: WalletKitZkArtifactSourceProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_walletkitzkartifactsource(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_walletkitzkartifactsource(handle, $0) }
+    }
+
+    
+
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeWalletKitZkArtifactSource: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = WalletKitZkArtifactSource
+
+    public static func lift(_ handle: UInt64) throws -> WalletKitZkArtifactSource {
+        return WalletKitZkArtifactSource(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: WalletKitZkArtifactSource) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> WalletKitZkArtifactSource {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: WalletKitZkArtifactSource, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWalletKitZkArtifactSource_lift(_ handle: UInt64) throws -> WalletKitZkArtifactSource {
+    return try FfiConverterTypeWalletKitZkArtifactSource.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeWalletKitZkArtifactSource_lower(_ value: WalletKitZkArtifactSource) -> UInt64 {
+    return FfiConverterTypeWalletKitZkArtifactSource.lower(value)
 }
 
 
@@ -8697,6 +9080,14 @@ public enum WalletKitError: Swift.Error, Equatable, Hashable, Foundation.Localiz
      */
     case DebugReportNotFound
     /**
+     * The backend has no identity for the credential's `sub`
+     */
+    case IdentityNotFound
+    /**
+     * The identity has no successful capture to check recovery eligibility against
+     */
+    case NoSuccessfulCaptureFound
+    /**
      * The user is not eligible for recovery
      */
     case NotEligibleForRecovery
@@ -8797,11 +9188,13 @@ public struct FfiConverterTypeWalletKitError: FfiConverterRustBuffer {
             errorCode: try FfiConverterString.read(from: &buf)
             )
         case 30: return .DebugReportNotFound
-        case 31: return .NotEligibleForRecovery
-        case 32: return .OhttpError(
+        case 31: return .IdentityNotFound
+        case 32: return .NoSuccessfulCaptureFound
+        case 33: return .NotEligibleForRecovery
+        case 34: return .OhttpError(
             error: try FfiConverterString.read(from: &buf)
             )
-        case 33: return .InvalidActionSession
+        case 35: return .InvalidActionSession
 
          default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -8949,17 +9342,25 @@ public struct FfiConverterTypeWalletKitError: FfiConverterRustBuffer {
             writeInt(&buf, Int32(30))
         
         
-        case .NotEligibleForRecovery:
+        case .IdentityNotFound:
             writeInt(&buf, Int32(31))
         
         
-        case let .OhttpError(error):
+        case .NoSuccessfulCaptureFound:
             writeInt(&buf, Int32(32))
+        
+        
+        case .NotEligibleForRecovery:
+            writeInt(&buf, Int32(33))
+        
+        
+        case let .OhttpError(error):
+            writeInt(&buf, Int32(34))
             FfiConverterString.write(error, into: &buf)
             
         
         case .InvalidActionSession:
-            writeInt(&buf, Int32(33))
+            writeInt(&buf, Int32(35))
         
         }
     }
@@ -9368,21 +9769,6 @@ public func checkCredentialsAgainstProofRequest(request: ProofRequest, store: Cr
     )
 })
 }
-/**
- * Writes embedded Groth16 material to the cache paths managed by [`StoragePaths`].
- *
- * This operation is idempotent and atomically rewrites all managed files.
- *
- * # Errors
- *
- * Returns an error if embedded material cannot be loaded or cache files cannot be written.
- */
-public func cacheEmbeddedGroth16Material(paths: StoragePaths)throws   {try rustCallWithError(FfiConverterTypeStorageError_lift) {
-    uniffi_walletkit_core_fn_func_cache_embedded_groth16_material(
-        FfiConverterTypeStoragePaths_lower(paths),$0
-    )
-}
-}
 
 private enum InitializationResult {
     case ok
@@ -9411,22 +9797,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_func_check_credentials_against_proof_request() != 4769) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_func_cache_embedded_groth16_material() != 10840) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_walletkit_core_checksum_method_authenticator_cancel_recovery_agent_update() != 27625) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_walletkit_core_checksum_method_authenticator_compute_credential_sub() != 11498) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_authenticator_danger_sign_challenge() != 11600) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_danger_sign_initiate_recovery_agent_update() != 54769) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_walletkit_core_checksum_method_authenticator_execute_recovery_agent_update() != 16326) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_danger_sign_initiate_recovery_agent_update() != 1880) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_authenticator_generate_credential_blinding_factor_remote() != 39820) {
@@ -9436,9 +9813,6 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_authenticator_get_packed_account_data_remote() != 55961) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_walletkit_core_checksum_method_authenticator_initiate_recovery_agent_update() != 49102) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_authenticator_leaf_index() != 2189) {
@@ -9453,6 +9827,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_authenticator_prove_credential_sub() != 42354) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_method_authenticator_revert_recovery_agent_update() != 62407) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_authenticator_update_recovery_agent() != 52803) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_method_authenticator_destroy_storage() != 59925) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9460,6 +9840,15 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_initializingauthenticator_poll_status() != 61377) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_cachingzkartifacts_as_zk_artifact_source() != 55109) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_cachingzkartifacts_preload() != 11909) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_embeddedzkartifacts_as_zk_artifact_source() != 8438) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_credential_associated_data_commitment() != 56904) {
@@ -9480,7 +9869,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_fieldelement_to_hex_string() != 48989) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_bind_recovery_agent() != 1287) {
+    if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_bind_recovery_agent() != 38594) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_get_recovery_binding() != 11792) {
@@ -9669,19 +10058,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_worldid_is_equal_to() != 27629) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_authenticator_init() != 64725) {
+    if (uniffi_walletkit_core_checksum_constructor_authenticator_init() != 1045) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_authenticator_init_with_defaults() != 47709) {
+    if (uniffi_walletkit_core_checksum_constructor_authenticator_init_with_defaults() != 17526) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_authenticator_init_with_ohttp_defaults() != 35089) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_walletkit_core_checksum_constructor_groth16materials_from_cache() != 54053) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_walletkit_core_checksum_constructor_groth16materials_from_embedded() != 17029) {
+    if (uniffi_walletkit_core_checksum_constructor_authenticator_init_with_ohttp_defaults() != 34526) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_initializingauthenticator_register() != 35471) {
@@ -9691,6 +10074,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_initializingauthenticator_register_with_ohttp_defaults() != 53643) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_constructor_cachingzkartifacts_new() != 40908) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_constructor_embeddedzkartifacts_new() != 57570) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_credential_from_bytes() != 47479) {

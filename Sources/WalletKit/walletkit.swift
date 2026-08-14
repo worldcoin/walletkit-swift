@@ -1130,12 +1130,63 @@ public protocol AuthenticatorProtocol: AnyObject, Sendable {
     func generateProof(proofRequest: ProofRequest, now: UInt64?) async throws  -> ProofResponse
     
     /**
+     * Returns the account's authenticator public keys, indexed by key-set slot.
+     *
+     * Each entry is the compressed `BabyJubJub` public key at that slot encoded
+     * as a `0x`-prefixed, zero-padded 32-byte hex string, or `None` for an
+     * empty slot. A key's position in this list is the `pubkey_id` expected by
+     * [`Self::remove_authenticator`].
+     *
+     * This performs a read-only indexer fetch and does not submit an account
+     * operation.
+     *
+     * # Errors
+     * - Returns a network error if the indexer request fails.
+     * - Returns an error if a stored public key cannot be encoded.
+     */
+    func getAuthenticatorPubkeys() async throws  -> [String?]
+    
+    /**
      * Returns the packed account data for the holder's World ID fetching it from the on-chain registry.
      *
      * # Errors
      * Will error if the provided RPC URL is not valid or if there are RPC call failures.
      */
     func getPackedAccountDataRemote() async throws  -> Uint256
+    
+    /**
+     * Returns whether the holder's account already contains an authenticator
+     * public key.
+     *
+     * This performs a read-only indexer fetch and does not submit an account
+     * operation.
+     *
+     * # Arguments
+     * * `authenticator_pubkey` — a compressed `BabyJubJub` public key encoded
+     * as a `0x`-prefixed, zero-padded 32-byte hex string.
+     *
+     * # Errors
+     * - Returns [`WalletKitError::InvalidInput`] if the public key is invalid.
+     * - Returns a network error if the indexer request fails.
+     */
+    func hasAuthenticatorPubkey(authenticatorPubkey: String) async throws  -> Bool
+    
+    /**
+     * Inserts an authenticator into the holder's World ID account.
+     *
+     * # Arguments
+     * * `new_authenticator_pubkey` — a compressed `BabyJubJub` public key encoded
+     * as a `0x`-prefixed, zero-padded 32-byte hex string.
+     * * `new_authenticator_address` — the Ethereum address associated with the
+     * new authenticator. Callers may pass the zero address for a proving-only
+     * authenticator.
+     *
+     * # Errors
+     * - Returns [`WalletKitError::InvalidInput`] if the public key or address is
+     * invalid.
+     * - Returns a network error if an indexer or gateway request fails.
+     */
+    func insertAuthenticator(newAuthenticatorPubkey: String, newAuthenticatorAddress: String) async throws  -> String
     
     /**
      * Returns the leaf index for the holder's World ID.
@@ -1159,6 +1210,14 @@ public protocol AuthenticatorProtocol: AnyObject, Sendable {
      * and their pubkey id/commitment.
      */
     func packedAccountData()  -> Uint256
+    
+    /**
+     * Polls the gateway once for the status of an account operation.
+     *
+     * # Errors
+     * Returns a network error if the gateway request fails.
+     */
+    func pollStatus(requestId: String) async throws  -> GatewayRequestStatus
     
     /**
      * Generates a WIP-103 Ownership Proof for Issuers.
@@ -1187,6 +1246,33 @@ public protocol AuthenticatorProtocol: AnyObject, Sendable {
      * - Returns [`WalletKitError::ProofGeneration`] if the ZK proof fails.
      */
     func proveCredentialSub(nonce: FieldElement, blindingFactor: FieldElement, sub: FieldElement) async throws  -> OwnershipProof
+    
+    /**
+     * Removes an authenticator from the holder's World ID account.
+     *
+     * # Arguments
+     * * `authenticator_address` — the Ethereum address associated with the
+     * authenticator being removed. Callers must pass the zero address for a
+     * proving-only authenticator.
+     * * `pubkey_id` — the stable key-set slot of the authenticator being removed.
+     * * `expected_authenticator_pubkey` — the compressed `BabyJubJub` public key
+     * the caller intends to remove, encoded as a `0x`-prefixed, zero-padded
+     * 32-byte hex string. The removal is refused if `pubkey_id` currently
+     * holds a different key, catching callers acting on a stale key-set view
+     * (see [`Self::get_authenticator_pubkeys`]). This check is best-effort:
+     * the signing flow re-reads the key set afterwards, so a concurrent
+     * change to the slot between the check and that read can still remove
+     * whichever key the slot holds at signing time. Callers that need an
+     * exact-target guarantee must serialize account operations across the
+     * account's authenticators.
+     *
+     * # Errors
+     * - Returns [`WalletKitError::InvalidInput`] if the address or public key
+     * is invalid, if `pubkey_id` is out of range, if the slot is empty, or
+     * if the slot holds a different key.
+     * - Returns a network error if an indexer or gateway request fails.
+     */
+    func removeAuthenticator(authenticatorAddress: String, pubkeyId: UInt32, expectedAuthenticatorPubkey: String) async throws  -> String
     
     /**
      * Reverts an in-flight recovery agent update during the revert window
@@ -1505,6 +1591,38 @@ open func generateProof(proofRequest: ProofRequest, now: UInt64?)async throws  -
 }
     
     /**
+     * Returns the account's authenticator public keys, indexed by key-set slot.
+     *
+     * Each entry is the compressed `BabyJubJub` public key at that slot encoded
+     * as a `0x`-prefixed, zero-padded 32-byte hex string, or `None` for an
+     * empty slot. A key's position in this list is the `pubkey_id` expected by
+     * [`Self::remove_authenticator`].
+     *
+     * This performs a read-only indexer fetch and does not submit an account
+     * operation.
+     *
+     * # Errors
+     * - Returns a network error if the indexer request fails.
+     * - Returns an error if a stored public key cannot be encoded.
+     */
+open func getAuthenticatorPubkeys()async throws  -> [String?]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_authenticator_get_authenticator_pubkeys(
+                    self.uniffiCloneHandle()
+                    
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceOptionString.lift,
+            errorHandler: FfiConverterTypeWalletKitError_lift
+        )
+}
+    
+    /**
      * Returns the packed account data for the holder's World ID fetching it from the on-chain registry.
      *
      * # Errors
@@ -1523,6 +1641,70 @@ open func getPackedAccountDataRemote()async throws  -> Uint256  {
             completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterTypeUint256_lift,
+            errorHandler: FfiConverterTypeWalletKitError_lift
+        )
+}
+    
+    /**
+     * Returns whether the holder's account already contains an authenticator
+     * public key.
+     *
+     * This performs a read-only indexer fetch and does not submit an account
+     * operation.
+     *
+     * # Arguments
+     * * `authenticator_pubkey` — a compressed `BabyJubJub` public key encoded
+     * as a `0x`-prefixed, zero-padded 32-byte hex string.
+     *
+     * # Errors
+     * - Returns [`WalletKitError::InvalidInput`] if the public key is invalid.
+     * - Returns a network error if the indexer request fails.
+     */
+open func hasAuthenticatorPubkey(authenticatorPubkey: String)async throws  -> Bool  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_authenticator_has_authenticator_pubkey(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(authenticatorPubkey)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_i8,
+            completeFunc: ffi_walletkit_core_rust_future_complete_i8,
+            freeFunc: ffi_walletkit_core_rust_future_free_i8,
+            liftFunc: FfiConverterBool.lift,
+            errorHandler: FfiConverterTypeWalletKitError_lift
+        )
+}
+    
+    /**
+     * Inserts an authenticator into the holder's World ID account.
+     *
+     * # Arguments
+     * * `new_authenticator_pubkey` — a compressed `BabyJubJub` public key encoded
+     * as a `0x`-prefixed, zero-padded 32-byte hex string.
+     * * `new_authenticator_address` — the Ethereum address associated with the
+     * new authenticator. Callers may pass the zero address for a proving-only
+     * authenticator.
+     *
+     * # Errors
+     * - Returns [`WalletKitError::InvalidInput`] if the public key or address is
+     * invalid.
+     * - Returns a network error if an indexer or gateway request fails.
+     */
+open func insertAuthenticator(newAuthenticatorPubkey: String, newAuthenticatorAddress: String)async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_authenticator_insert_authenticator(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(newAuthenticatorPubkey),FfiConverterString.lower(newAuthenticatorAddress)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
             errorHandler: FfiConverterTypeWalletKitError_lift
         )
 }
@@ -1569,6 +1751,29 @@ open func packedAccountData() -> Uint256  {
 }
     
     /**
+     * Polls the gateway once for the status of an account operation.
+     *
+     * # Errors
+     * Returns a network error if the gateway request fails.
+     */
+open func pollStatus(requestId: String)async throws  -> GatewayRequestStatus  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_authenticator_poll_status(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(requestId)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeGatewayRequestStatus_lift,
+            errorHandler: FfiConverterTypeWalletKitError_lift
+        )
+}
+    
+    /**
      * Generates a WIP-103 Ownership Proof for Issuers.
      *
      * An Ownership Proof lets the user prove they own the credential `sub`
@@ -1607,6 +1812,48 @@ open func proveCredentialSub(nonce: FieldElement, blindingFactor: FieldElement, 
             completeFunc: ffi_walletkit_core_rust_future_complete_u64,
             freeFunc: ffi_walletkit_core_rust_future_free_u64,
             liftFunc: FfiConverterTypeOwnershipProof_lift,
+            errorHandler: FfiConverterTypeWalletKitError_lift
+        )
+}
+    
+    /**
+     * Removes an authenticator from the holder's World ID account.
+     *
+     * # Arguments
+     * * `authenticator_address` — the Ethereum address associated with the
+     * authenticator being removed. Callers must pass the zero address for a
+     * proving-only authenticator.
+     * * `pubkey_id` — the stable key-set slot of the authenticator being removed.
+     * * `expected_authenticator_pubkey` — the compressed `BabyJubJub` public key
+     * the caller intends to remove, encoded as a `0x`-prefixed, zero-padded
+     * 32-byte hex string. The removal is refused if `pubkey_id` currently
+     * holds a different key, catching callers acting on a stale key-set view
+     * (see [`Self::get_authenticator_pubkeys`]). This check is best-effort:
+     * the signing flow re-reads the key set afterwards, so a concurrent
+     * change to the slot between the check and that read can still remove
+     * whichever key the slot holds at signing time. Callers that need an
+     * exact-target guarantee must serialize account operations across the
+     * account's authenticators.
+     *
+     * # Errors
+     * - Returns [`WalletKitError::InvalidInput`] if the address or public key
+     * is invalid, if `pubkey_id` is out of range, if the slot is empty, or
+     * if the slot holds a different key.
+     * - Returns a network error if an indexer or gateway request fails.
+     */
+open func removeAuthenticator(authenticatorAddress: String, pubkeyId: UInt32, expectedAuthenticatorPubkey: String)async throws  -> String  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_authenticator_remove_authenticator(
+                    self.uniffiCloneHandle(),
+                    FfiConverterString.lower(authenticatorAddress),FfiConverterUInt32.lower(pubkeyId),FfiConverterString.lower(expectedAuthenticatorPubkey)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterString.lift,
             errorHandler: FfiConverterTypeWalletKitError_lift
         )
 }
@@ -8219,6 +8466,134 @@ public func FfiConverterTypeEnvironment_lower(_ value: Environment) -> RustBuffe
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
+ * Status of an account operation submitted through the gateway.
+ */
+
+public enum GatewayRequestStatus: Equatable, Hashable {
+    
+    /**
+     * Request queued but not yet batched.
+     */
+    case queued
+    /**
+     * Request currently being batched.
+     */
+    case batching
+    /**
+     * Request submitted on-chain.
+     */
+    case submitted(
+        /**
+         * Transaction hash emitted when the request was submitted.
+         */txHash: String
+    )
+    /**
+     * Request finalized on-chain.
+     */
+    case finalized(
+        /**
+         * Transaction hash emitted when the request was finalized.
+         */txHash: String
+    )
+    /**
+     * Request failed during processing.
+     */
+    case failed(
+        /**
+         * Error message returned by the gateway.
+         */error: String, 
+        /**
+         * Specific error code, if available.
+         */errorCode: String?
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension GatewayRequestStatus: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeGatewayRequestStatus: FfiConverterRustBuffer {
+    typealias SwiftType = GatewayRequestStatus
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> GatewayRequestStatus {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .queued
+        
+        case 2: return .batching
+        
+        case 3: return .submitted(txHash: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 4: return .finalized(txHash: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 5: return .failed(error: try FfiConverterString.read(from: &buf), errorCode: try FfiConverterOptionString.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: GatewayRequestStatus, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .queued:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .batching:
+            writeInt(&buf, Int32(2))
+        
+        
+        case let .submitted(txHash):
+            writeInt(&buf, Int32(3))
+            FfiConverterString.write(txHash, into: &buf)
+            
+        
+        case let .finalized(txHash):
+            writeInt(&buf, Int32(4))
+            FfiConverterString.write(txHash, into: &buf)
+            
+        
+        case let .failed(error,errorCode):
+            writeInt(&buf, Int32(5))
+            FfiConverterString.write(error, into: &buf)
+            FfiConverterOptionString.write(errorCode, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGatewayRequestStatus_lift(_ buf: RustBuffer) throws -> GatewayRequestStatus {
+    return try FfiConverterTypeGatewayRequestStatus.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeGatewayRequestStatus_lower(_ value: GatewayRequestStatus) -> RustBuffer {
+    return FfiConverterTypeGatewayRequestStatus.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
  * Enumeration of possible log levels for foreign logger callbacks.
  */
 
@@ -9578,6 +9953,31 @@ fileprivate struct FfiConverterSequenceTypeCredentialRecord: FfiConverterRustBuf
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceOptionString: FfiConverterRustBuffer {
+    typealias SwiftType = [String?]
+
+    public static func write(_ value: [String?], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterOptionString.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String?] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [String?]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterOptionString.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterDictionaryStringString: FfiConverterRustBuffer {
     public static func write(_ value: [String: String], into buf: inout [UInt8]) {
         let len = Int32(value.count)
@@ -9716,6 +10116,34 @@ public func recoveryDataFromSeed(seed: Data)throws  -> RecoveryData  {
 })
 }
 /**
+ * Validates an authenticator public key without submitting an account
+ * operation, returning its canonical encoding.
+ *
+ * This is a free function (not a method on [`Authenticator`]) so consumers
+ * can validate a key — e.g. one scanned during pairing — before an
+ * `Authenticator` exists.
+ *
+ * The returned string is the canonical form of the key (lowercase,
+ * `0x`-prefixed, zero-padded 32-byte hex), byte-identical to the entries
+ * returned by [`Authenticator::get_authenticator_pubkeys`]. Use it — not the
+ * raw input — for string comparisons against key-set entries.
+ *
+ * # Arguments
+ * * `authenticator_pubkey` — a compressed `BabyJubJub` public key encoded
+ * as a `0x`-prefixed, zero-padded 32-byte hex string.
+ *
+ * # Errors
+ * Returns [`WalletKitError::InvalidInput`] if the public key is invalid,
+ * is not in canonical form, or is the `BabyJubJub` identity point.
+ */
+public func validateAuthenticatorPubkey(authenticatorPubkey: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+    uniffi_walletkit_core_fn_func_validate_authenticator_pubkey(
+        FfiConverterString.lower(authenticatorPubkey),$0
+    )
+})
+}
+/**
  * Emits a message at the given level through `WalletKit`'s tracing pipeline.
  *
  * Useful for verifying that the logging bridge is wired up correctly.
@@ -9788,6 +10216,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_func_recovery_data_from_seed() != 17579) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_func_validate_authenticator_pubkey() != 60852) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_func_emit_log() != 60718) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -9812,7 +10243,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_authenticator_generate_proof() != 3542) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_method_authenticator_get_authenticator_pubkeys() != 30655) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_method_authenticator_get_packed_account_data_remote() != 55961) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_authenticator_has_authenticator_pubkey() != 27262) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_authenticator_insert_authenticator() != 37665) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_authenticator_leaf_index() != 2189) {
@@ -9824,7 +10264,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_authenticator_packed_account_data() != 38096) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_method_authenticator_poll_status() != 2306) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_method_authenticator_prove_credential_sub() != 42354) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_authenticator_remove_authenticator() != 56221) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_authenticator_revert_recovery_agent_update() != 62407) {

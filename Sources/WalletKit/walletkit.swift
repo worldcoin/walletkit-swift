@@ -40,6 +40,52 @@ fileprivate extension ForeignBytes {
     init(bufferPointer: UnsafeBufferPointer<UInt8>) {
         self.init(len: Int32(bufferPointer.count), data: bufferPointer.baseAddress)
     }
+
+    init(rawBufferPointer: UnsafeRawBufferPointer) {
+        self.init(
+            len: Int32(rawBufferPointer.count),
+            data: rawBufferPointer.baseAddress?.assumingMemoryBound(to: UInt8.self)
+        )
+    }
+}
+
+// Converter for `&[u8]` / `[ByRef] bytes` arguments.
+//
+// Conforms to `FfiConverter` so the compiler enforces the full converter
+// method set. Only the scope-bound `lower(_:_body:)` overload is sound —
+// zero-copy byte buffers only flow foreign -> Rust, and only in argument
+// position. The four protocol-witness methods (`lift`, `lower`, `read`,
+// `write`) `fatalError` at runtime if anyone reaches them.
+//
+// The scope-bound `lower` takes a closure because the `ForeignBytes`
+// pointer is only guaranteed valid for the duration of
+// `Data.withUnsafeBytes`. Callers must run the full FFI call inside
+// the closure body.
+fileprivate enum FfiConverterByRefBytes: FfiConverter {
+    typealias SwiftType = Data
+    typealias FfiType = ForeignBytes
+
+    static func lower<R>(_ value: Data, _ body: (ForeignBytes) throws -> R) rethrows -> R {
+        return try value.withUnsafeBytes { rawBuf in
+            try body(ForeignBytes(rawBufferPointer: rawBuf))
+        }
+    }
+
+    static func lower(_ value: Data) -> ForeignBytes {
+        fatalError("ByRef bytes cannot use the plain lower: returning ForeignBytes escapes the Data.withUnsafeBytes scope. Use the scope-bound lower(_:_body:) overload instead.")
+    }
+
+    static func lift(_ value: ForeignBytes) throws -> Data {
+        fatalError("ByRef bytes cannot be lifted: zero-copy &[u8] only flows foreign->Rust")
+    }
+
+    static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Data {
+        fatalError("ByRef bytes cannot be read from a buffer: zero-copy &[u8] is only supported in argument position, not nested in records/options/etc.")
+    }
+
+    static func write(_ value: Data, into buf: inout [UInt8]) {
+        fatalError("ByRef bytes cannot be written to a buffer: zero-copy &[u8] is only supported in argument position, not nested in records/options/etc.")
+    }
 }
 
 // For every type used in the interface, we provide helper methods for conveniently
@@ -653,7 +699,8 @@ open class AddressBook: AddressBookProtocol, @unchecked Sendable {
 public convenience init() {
     let handle =
         try! rustCall() {
-    uniffi_walletkit_core_fn_constructor_addressbook_new($0
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_constructor_addressbook_new(uniffiCallStatus
     )
 }
     self.init(unsafeFromHandle: handle)
@@ -680,10 +727,11 @@ public convenience init() {
      */
 open func generateProofContext(addressToVerify: String, timestamp: UInt64)throws  -> ProofContext  {
     return try  FfiConverterTypeProofContext_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_addressbook_generate_proof_context(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(addressToVerify),
-        FfiConverterUInt64.lower(timestamp),$0
+        FfiConverterUInt64.lower(timestamp),uniffiCallStatus
     )
 })
 }
@@ -836,9 +884,10 @@ open class AtomicBlobStoreImpl: AtomicBlobStore, @unchecked Sendable {
      */
 open func read(path: String)throws  -> Data?  {
     return try  FfiConverterOptionData.lift(try rustCallWithError(FfiConverterTypeStorageError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_atomicblobstore_read(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(path),$0
+        FfiConverterString.lower(path),uniffiCallStatus
     )
 })
 }
@@ -851,10 +900,11 @@ open func read(path: String)throws  -> Data?  {
      * Returns an error if the write fails.
      */
 open func writeAtomic(path: String, bytes: Data)throws   {try rustCallWithError(FfiConverterTypeStorageError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_atomicblobstore_write_atomic(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(path),
-        FfiConverterData.lower(bytes),$0
+        FfiConverterData.lower(bytes),uniffiCallStatus
     )
 }
 }
@@ -867,9 +917,10 @@ open func writeAtomic(path: String, bytes: Data)throws   {try rustCallWithError(
      * Returns an error if the delete fails.
      */
 open func delete(path: String)throws   {try rustCallWithError(FfiConverterTypeStorageError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_atomicblobstore_delete(
             self.uniffiCloneHandle(),
-        FfiConverterString.lower(path),$0
+        FfiConverterString.lower(path),uniffiCallStatus
     )
 }
 }
@@ -1470,9 +1521,10 @@ public static func initWithOhttpDefaults(seed: Data, rpcUrl: String?, environmen
      */
 open func computeCredentialSub(blindingFactor: FieldElement) -> FieldElement  {
     return try!  FfiConverterTypeFieldElement_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_authenticator_compute_credential_sub(
             self.uniffiCloneHandle(),
-        FfiConverterTypeFieldElement_lower(blindingFactor),$0
+        FfiConverterTypeFieldElement_lower(blindingFactor),uniffiCallStatus
     )
 })
 }
@@ -1491,9 +1543,10 @@ open func computeCredentialSub(blindingFactor: FieldElement) -> FieldElement  {
      */
 open func dangerSignChallenge(challenge: Data)throws  -> Data  {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_authenticator_danger_sign_challenge(
             self.uniffiCloneHandle(),
-        FfiConverterData.lower(challenge),$0
+        FfiConverterData.lower(challenge),uniffiCallStatus
     )
 })
 }
@@ -1528,8 +1581,7 @@ open func dangerSignInitiateRecoveryAgentUpdate(newRecoveryAgent: String)async t
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_walletkit_core_fn_method_authenticator_danger_sign_initiate_recovery_agent_update(
-                    self.uniffiCloneHandle(),
-                    FfiConverterString.lower(newRecoveryAgent)
+                        self.uniffiCloneHandle(),FfiConverterString.lower(newRecoveryAgent)
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
@@ -1555,8 +1607,7 @@ open func generateCredentialBlindingFactorRemote(issuerSchemaId: UInt64)async th
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_walletkit_core_fn_method_authenticator_generate_credential_blinding_factor_remote(
-                    self.uniffiCloneHandle(),
-                    FfiConverterUInt64.lower(issuerSchemaId)
+                        self.uniffiCloneHandle(),FfiConverterUInt64.lower(issuerSchemaId)
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_u64,
@@ -1578,8 +1629,7 @@ open func generateProof(proofRequest: ProofRequest, now: UInt64?)async throws  -
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_walletkit_core_fn_method_authenticator_generate_proof(
-                    self.uniffiCloneHandle(),
-                    FfiConverterTypeProofRequest_lower(proofRequest),FfiConverterOptionUInt64.lower(now)
+                        self.uniffiCloneHandle(),FfiConverterTypeProofRequest_lower(proofRequest),FfiConverterOptionUInt64.lower(now)
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_u64,
@@ -1610,8 +1660,7 @@ open func getAuthenticatorPubkeys()async throws  -> [String?]  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_walletkit_core_fn_method_authenticator_get_authenticator_pubkeys(
-                    self.uniffiCloneHandle()
-                    
+                        self.uniffiCloneHandle()
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
@@ -1633,8 +1682,7 @@ open func getPackedAccountDataRemote()async throws  -> Uint256  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_walletkit_core_fn_method_authenticator_get_packed_account_data_remote(
-                    self.uniffiCloneHandle()
-                    
+                        self.uniffiCloneHandle()
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
@@ -1665,8 +1713,7 @@ open func hasAuthenticatorPubkey(authenticatorPubkey: String)async throws  -> Bo
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_walletkit_core_fn_method_authenticator_has_authenticator_pubkey(
-                    self.uniffiCloneHandle(),
-                    FfiConverterString.lower(authenticatorPubkey)
+                        self.uniffiCloneHandle(),FfiConverterString.lower(authenticatorPubkey)
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_i8,
@@ -1697,8 +1744,7 @@ open func insertAuthenticator(newAuthenticatorPubkey: String, newAuthenticatorAd
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_walletkit_core_fn_method_authenticator_insert_authenticator(
-                    self.uniffiCloneHandle(),
-                    FfiConverterString.lower(newAuthenticatorPubkey),FfiConverterString.lower(newAuthenticatorAddress)
+                        self.uniffiCloneHandle(),FfiConverterString.lower(newAuthenticatorPubkey),FfiConverterString.lower(newAuthenticatorAddress)
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
@@ -1717,8 +1763,9 @@ open func insertAuthenticator(newAuthenticatorPubkey: String, newAuthenticatorAd
      */
 open func leafIndex() -> UInt64  {
     return try!  FfiConverterUInt64.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_authenticator_leaf_index(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -1730,8 +1777,9 @@ open func leafIndex() -> UInt64  {
      */
 open func onchainAddress() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_authenticator_onchain_address(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -1744,8 +1792,9 @@ open func onchainAddress() -> String  {
      */
 open func packedAccountData() -> Uint256  {
     return try!  FfiConverterTypeUint256_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_authenticator_packed_account_data(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -1761,8 +1810,7 @@ open func pollStatus(requestId: String)async throws  -> GatewayRequestStatus  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_walletkit_core_fn_method_authenticator_poll_status(
-                    self.uniffiCloneHandle(),
-                    FfiConverterString.lower(requestId)
+                        self.uniffiCloneHandle(),FfiConverterString.lower(requestId)
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
@@ -1804,8 +1852,7 @@ open func proveCredentialSub(nonce: FieldElement, blindingFactor: FieldElement, 
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_walletkit_core_fn_method_authenticator_prove_credential_sub(
-                    self.uniffiCloneHandle(),
-                    FfiConverterTypeFieldElement_lower(nonce),FfiConverterTypeFieldElement_lower(blindingFactor),FfiConverterTypeFieldElement_lower(sub)
+                        self.uniffiCloneHandle(),FfiConverterTypeFieldElement_lower(nonce),FfiConverterTypeFieldElement_lower(blindingFactor),FfiConverterTypeFieldElement_lower(sub)
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_u64,
@@ -1846,8 +1893,7 @@ open func removeAuthenticator(authenticatorAddress: String, pubkeyId: UInt32, ex
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_walletkit_core_fn_method_authenticator_remove_authenticator(
-                    self.uniffiCloneHandle(),
-                    FfiConverterString.lower(authenticatorAddress),FfiConverterUInt32.lower(pubkeyId),FfiConverterString.lower(expectedAuthenticatorPubkey)
+                        self.uniffiCloneHandle(),FfiConverterString.lower(authenticatorAddress),FfiConverterUInt32.lower(pubkeyId),FfiConverterString.lower(expectedAuthenticatorPubkey)
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
@@ -1878,8 +1924,7 @@ open func revertRecoveryAgentUpdate()async throws  -> String  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_walletkit_core_fn_method_authenticator_revert_recovery_agent_update(
-                    self.uniffiCloneHandle()
-                    
+                        self.uniffiCloneHandle()
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
@@ -1914,8 +1959,7 @@ open func updateRecoveryAgent(newRecoveryAgent: String)async throws  -> String  
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_walletkit_core_fn_method_authenticator_update_recovery_agent(
-                    self.uniffiCloneHandle(),
-                    FfiConverterString.lower(newRecoveryAgent)
+                        self.uniffiCloneHandle(),FfiConverterString.lower(newRecoveryAgent)
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
@@ -1938,8 +1982,9 @@ open func updateRecoveryAgent(newRecoveryAgent: String)async throws  -> String  
      * Returns an error if the storage destruction fails.
      */
 open func destroyStorage()throws   {try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_authenticator_destroy_storage(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 }
 }
@@ -1952,9 +1997,10 @@ open func destroyStorage()throws   {try rustCallWithError(FfiConverterTypeWallet
      * Returns an error if the leaf index is invalid or storage initialization fails.
      */
 open func initStorage(now: UInt64)throws   {try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_authenticator_init_storage(
             self.uniffiCloneHandle(),
-        FfiConverterUInt64.lower(now),$0
+        FfiConverterUInt64.lower(now),uniffiCallStatus
     )
 }
 }
@@ -2093,8 +2139,9 @@ open class CachingZkArtifacts: CachingZkArtifactsProtocol, @unchecked Sendable {
 public convenience init(storagePaths: StoragePaths) {
     let handle =
         try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_constructor_cachingzkartifacts_new(
-        FfiConverterTypeStoragePaths_lower(storagePaths),$0
+        FfiConverterTypeStoragePaths_lower(storagePaths),uniffiCallStatus
     )
 }
     self.init(unsafeFromHandle: handle)
@@ -2120,8 +2167,9 @@ public convenience init(storagePaths: StoragePaths) {
      */
 open func asZkArtifactSource() -> WalletKitZkArtifactSource  {
     return try!  FfiConverterTypeWalletKitZkArtifactSource_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_cachingzkartifacts_as_zk_artifact_source(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -2137,8 +2185,9 @@ open func asZkArtifactSource() -> WalletKitZkArtifactSource  {
      * artifacts.
      */
 open func preload()throws   {try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_cachingzkartifacts_preload(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 }
 }
@@ -2408,8 +2457,9 @@ open class Credential: CredentialProtocol, @unchecked Sendable {
      */
 public static func fromBytes(bytes: Data)throws  -> Credential  {
     return try  FfiConverterTypeCredential_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_constructor_credential_from_bytes(
-        FfiConverterData.lower(bytes),$0
+        FfiConverterData.lower(bytes),uniffiCallStatus
     )
 })
 }
@@ -2423,8 +2473,9 @@ public static func fromBytes(bytes: Data)throws  -> Credential  {
      */
 open func associatedDataCommitment() -> FieldElement  {
     return try!  FfiConverterTypeFieldElement_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_credential_associated_data_commitment(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -2434,8 +2485,9 @@ open func associatedDataCommitment() -> FieldElement  {
      */
 open func expiresAt() -> UInt64  {
     return try!  FfiConverterUInt64.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_credential_expires_at(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -2445,8 +2497,9 @@ open func expiresAt() -> UInt64  {
      */
 open func issuerSchemaId() -> UInt64  {
     return try!  FfiConverterUInt64.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_credential_issuer_schema_id(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -2456,8 +2509,9 @@ open func issuerSchemaId() -> UInt64  {
      */
 open func sub() -> FieldElement  {
     return try!  FfiConverterTypeFieldElement_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_credential_sub(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -2708,8 +2762,9 @@ open class CredentialStore: CredentialStoreProtocol, @unchecked Sendable {
      */
 public static func fromProviderArc(provider: StorageProvider)throws  -> CredentialStore  {
     return try  FfiConverterTypeCredentialStore_lift(try rustCallWithError(FfiConverterTypeStorageError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_constructor_credentialstore_from_provider_arc(
-        FfiConverterTypeStorageProvider_lower(provider),$0
+        FfiConverterTypeStorageProvider_lower(provider),uniffiCallStatus
     )
 })
 }
@@ -2723,10 +2778,11 @@ public static func fromProviderArc(provider: StorageProvider)throws  -> Credenti
      */
 public static func newWithComponents(paths: StoragePaths, keystore: DeviceKeystore, blobStore: AtomicBlobStore)throws  -> CredentialStore  {
     return try  FfiConverterTypeCredentialStore_lift(try rustCallWithError(FfiConverterTypeStorageError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_constructor_credentialstore_new_with_components(
         FfiConverterTypeStoragePaths_lower(paths),
         FfiConverterTypeDeviceKeystore_lower(keystore),
-        FfiConverterTypeAtomicBlobStore_lower(blobStore),$0
+        FfiConverterTypeAtomicBlobStore_lower(blobStore),uniffiCallStatus
     )
 })
 }
@@ -2753,8 +2809,9 @@ public static func newWithComponents(paths: StoragePaths, keystore: DeviceKeysto
      */
 open func dangerDeleteAllCredentials()throws  -> UInt64  {
     return try  FfiConverterUInt64.lift(try rustCallWithError(FfiConverterTypeStorageError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_credentialstore_danger_delete_all_credentials(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -2768,9 +2825,10 @@ open func dangerDeleteAllCredentials()throws  -> UInt64  {
      * not exist.
      */
 open func deleteCredential(credentialId: UInt64)throws   {try rustCallWithError(FfiConverterTypeStorageError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_credentialstore_delete_credential(
             self.uniffiCloneHandle(),
-        FfiConverterUInt64.lower(credentialId),$0
+        FfiConverterUInt64.lower(credentialId),uniffiCallStatus
     )
 }
 }
@@ -2791,8 +2849,9 @@ open func deleteCredential(credentialId: UInt64)throws   {try rustCallWithError(
      * envelope cannot be deleted from the blob store.
      */
 open func destroyStorage()throws   {try rustCallWithError(FfiConverterTypeStorageError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_credentialstore_destroy_storage(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 }
 }
@@ -2810,8 +2869,9 @@ open func destroyStorage()throws   {try rustCallWithError(FfiConverterTypeStorag
      */
 open func exportVaultForBackup()throws  -> Data  {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeStorageError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_credentialstore_export_vault_for_backup(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -2827,10 +2887,13 @@ open func exportVaultForBackup()throws  -> Data  {
      * Returns an error if the store is not initialized or the import fails.
      */
 open func importVaultFromBackup(backupBytes: Data)throws   {try rustCallWithError(FfiConverterTypeStorageError_lift) {
+        uniffiCallStatus in
+        FfiConverterByRefBytes.lower(backupBytes) { backupBytesFb in
     uniffi_walletkit_core_fn_method_credentialstore_import_vault_from_backup(
             self.uniffiCloneHandle(),
-        FfiConverterData.lower(backupBytes),$0
+        backupBytesFb,uniffiCallStatus
     )
+        }
 }
 }
     
@@ -2842,10 +2905,11 @@ open func importVaultFromBackup(backupBytes: Data)throws   {try rustCallWithErro
      * Returns an error if initialization fails or the leaf index mismatches.
      */
 open func `init`(leafIndex: UInt64, now: UInt64)throws   {try rustCallWithError(FfiConverterTypeStorageError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_credentialstore_init(
             self.uniffiCloneHandle(),
         FfiConverterUInt64.lower(leafIndex),
-        FfiConverterUInt64.lower(now),$0
+        FfiConverterUInt64.lower(now),uniffiCallStatus
     )
 }
 }
@@ -2862,10 +2926,11 @@ open func `init`(leafIndex: UInt64, now: UInt64)throws   {try rustCallWithError(
      */
 open func listCredentials(issuerSchemaId: UInt64?, now: UInt64)throws  -> [CredentialRecord]  {
     return try  FfiConverterSequenceTypeCredentialRecord.lift(try rustCallWithError(FfiConverterTypeStorageError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_credentialstore_list_credentials(
             self.uniffiCloneHandle(),
         FfiConverterOptionUInt64.lower(issuerSchemaId),
-        FfiConverterUInt64.lower(now),$0
+        FfiConverterUInt64.lower(now),uniffiCallStatus
     )
 })
 }
@@ -2885,9 +2950,10 @@ open func listCredentials(issuerSchemaId: UInt64?, now: UInt64)throws  -> [Crede
      * `CredentialStore` — doing so will deadlock.
      */
 open func setVaultChangedListener(listener: VaultChangedListener)  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_credentialstore_set_vault_changed_listener(
             self.uniffiCloneHandle(),
-        FfiConverterTypeVaultChangedListener_lower(listener),$0
+        FfiConverterTypeVaultChangedListener_lower(listener),uniffiCallStatus
     )
 }
 }
@@ -2901,8 +2967,9 @@ open func setVaultChangedListener(listener: VaultChangedListener)  {try! rustCal
      */
 open func storagePaths()throws  -> StoragePaths  {
     return try  FfiConverterTypeStoragePaths_lift(try rustCallWithError(FfiConverterTypeStorageError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_credentialstore_storage_paths(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -2916,13 +2983,14 @@ open func storagePaths()throws  -> StoragePaths  {
      */
 open func storeCredential(credential: Credential, blindingFactor: FieldElement, expiresAt: UInt64, associatedData: Data?, now: UInt64)throws  -> UInt64  {
     return try  FfiConverterUInt64.lift(try rustCallWithError(FfiConverterTypeStorageError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_credentialstore_store_credential(
             self.uniffiCloneHandle(),
         FfiConverterTypeCredential_lower(credential),
         FfiConverterTypeFieldElement_lower(blindingFactor),
         FfiConverterUInt64.lower(expiresAt),
         FfiConverterOptionData.lower(associatedData),
-        FfiConverterUInt64.lower(now),$0
+        FfiConverterUInt64.lower(now),uniffiCallStatus
     )
 })
 }
@@ -3075,10 +3143,11 @@ open class DeviceKeystoreImpl: DeviceKeystore, @unchecked Sendable {
      */
 open func seal(associatedData: Data, plaintext: Data)throws  -> Data  {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeStorageError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_devicekeystore_seal(
             self.uniffiCloneHandle(),
         FfiConverterData.lower(associatedData),
-        FfiConverterData.lower(plaintext),$0
+        FfiConverterData.lower(plaintext),uniffiCallStatus
     )
 })
 }
@@ -3095,10 +3164,11 @@ open func seal(associatedData: Data, plaintext: Data)throws  -> Data  {
      */
 open func openSealed(associatedData: Data, ciphertext: Data)throws  -> Data  {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeStorageError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_devicekeystore_open_sealed(
             self.uniffiCloneHandle(),
         FfiConverterData.lower(associatedData),
-        FfiConverterData.lower(ciphertext),$0
+        FfiConverterData.lower(ciphertext),uniffiCallStatus
     )
 })
 }
@@ -3330,7 +3400,8 @@ open class EmbeddedZkArtifacts: EmbeddedZkArtifactsProtocol, @unchecked Sendable
 public convenience init() {
     let handle =
         try! rustCall() {
-    uniffi_walletkit_core_fn_constructor_embeddedzkartifacts_new($0
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_constructor_embeddedzkartifacts_new(uniffiCallStatus
     )
 }
     self.init(unsafeFromHandle: handle)
@@ -3356,8 +3427,9 @@ public convenience init() {
      */
 open func asZkArtifactSource() -> WalletKitZkArtifactSource  {
     return try!  FfiConverterTypeWalletKitZkArtifactSource_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_embeddedzkartifacts_as_zk_artifact_source(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -3505,8 +3577,9 @@ open class FieldElement: FieldElementProtocol, @unchecked Sendable {
      */
 public static func fromBytes(bytes: Data)throws  -> FieldElement  {
     return try  FfiConverterTypeFieldElement_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_constructor_fieldelement_from_bytes(
-        FfiConverterData.lower(bytes),$0
+        FfiConverterData.lower(bytes),uniffiCallStatus
     )
 })
 }
@@ -3518,8 +3591,9 @@ public static func fromBytes(bytes: Data)throws  -> FieldElement  {
      */
 public static func fromU64(value: UInt64) -> FieldElement  {
     return try!  FfiConverterTypeFieldElement_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_constructor_fieldelement_from_u64(
-        FfiConverterUInt64.lower(value),$0
+        FfiConverterUInt64.lower(value),uniffiCallStatus
     )
 })
 }
@@ -3535,8 +3609,9 @@ public static func fromU64(value: UInt64) -> FieldElement  {
      */
 public static func tryFromHexString(hexString: String)throws  -> FieldElement  {
     return try  FfiConverterTypeFieldElement_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_constructor_fieldelement_try_from_hex_string(
-        FfiConverterString.lower(hexString),$0
+        FfiConverterString.lower(hexString),uniffiCallStatus
     )
 })
 }
@@ -3550,8 +3625,9 @@ public static func tryFromHexString(hexString: String)throws  -> FieldElement  {
      */
 open func toBytes() -> Data  {
     return try!  FfiConverterData.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_fieldelement_to_bytes(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -3561,8 +3637,9 @@ open func toBytes() -> Data  {
      */
 open func toHexString() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_fieldelement_to_hex_string(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -3778,8 +3855,7 @@ open func pollStatus()async throws  -> RegistrationStatus  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_walletkit_core_fn_method_initializingauthenticator_poll_status(
-                    self.uniffiCloneHandle()
-                    
+                        self.uniffiCloneHandle()
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
@@ -4001,10 +4077,11 @@ open class LoggerImpl: Logger, @unchecked Sendable {
      * Receives a log `message` with its corresponding `level`.
      */
 open func log(level: LogLevel, message: String)  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_logger_log(
             self.uniffiCloneHandle(),
         FfiConverterTypeLogLevel_lower(level),
-        FfiConverterString.lower(message),$0
+        FfiConverterString.lower(message),uniffiCallStatus
     )
 }
 }
@@ -4220,9 +4297,10 @@ public static func fromIdentityCommitment(identityCommitment: Uint256, sequencer
     
 public static func fromJsonProof(jsonProof: String, merkleRoot: String)throws  -> MerkleTreeProof  {
     return try  FfiConverterTypeMerkleTreeProof_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_constructor_merkletreeproof_from_json_proof(
         FfiConverterString.lower(jsonProof),
-        FfiConverterString.lower(merkleRoot),$0
+        FfiConverterString.lower(merkleRoot),uniffiCallStatus
     )
 })
 }
@@ -4370,8 +4448,9 @@ open class OwnershipProof: OwnershipProofProtocol, @unchecked Sendable {
      */
 open func encode()throws  -> Data  {
     return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_ownershipproof_encode(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -4384,8 +4463,9 @@ open func encode()throws  -> Data  {
      */
 open func encodeB64()throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_ownershipproof_encode_b64(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -4395,8 +4475,9 @@ open func encodeB64()throws  -> String  {
      */
 open func merkleRoot() -> FieldElement  {
     return try!  FfiConverterTypeFieldElement_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_ownershipproof_merkle_root(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -4542,11 +4623,12 @@ open class ProofContext: ProofContextProtocol, @unchecked Sendable {
 public convenience init(appId: String, action: String?, signal: String?, credentialType: CredentialType) {
     let handle =
         try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_constructor_proofcontext_new(
         FfiConverterString.lower(appId),
         FfiConverterOptionString.lower(action),
         FfiConverterOptionString.lower(signal),
-        FfiConverterTypeCredentialType_lower(credentialType),$0
+        FfiConverterTypeCredentialType_lower(credentialType),uniffiCallStatus
     )
 }
     self.init(unsafeFromHandle: handle)
@@ -4582,12 +4664,15 @@ public convenience init(appId: String, action: String?, signal: String?, credent
      */
 public static func legacyNewFromPreImageExternalNullifier(externalNullifier: Data, credentialType: CredentialType, signal: Data?, requireMinedProof: Bool) -> ProofContext  {
     return try!  FfiConverterTypeProofContext_lift(try! rustCall() {
+        uniffiCallStatus in
+        FfiConverterByRefBytes.lower(externalNullifier) { externalNullifierFb in
     uniffi_walletkit_core_fn_constructor_proofcontext_legacy_new_from_pre_image_external_nullifier(
-        FfiConverterData.lower(externalNullifier),
+        externalNullifierFb,
         FfiConverterTypeCredentialType_lower(credentialType),
         FfiConverterOptionData.lower(signal),
-        FfiConverterBool.lower(requireMinedProof),$0
+        FfiConverterBool.lower(requireMinedProof),uniffiCallStatus
     )
+        }
 })
 }
     
@@ -4615,11 +4700,12 @@ public static func legacyNewFromPreImageExternalNullifier(externalNullifier: Dat
      */
 public static func legacyNewFromRawExternalNullifier(externalNullifier: Uint256, credentialType: CredentialType, signal: Data?, requireMinedProof: Bool)throws  -> ProofContext  {
     return try  FfiConverterTypeProofContext_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_constructor_proofcontext_legacy_new_from_raw_external_nullifier(
         FfiConverterTypeUint256_lower(externalNullifier),
         FfiConverterTypeCredentialType_lower(credentialType),
         FfiConverterOptionData.lower(signal),
-        FfiConverterBool.lower(requireMinedProof),$0
+        FfiConverterBool.lower(requireMinedProof),uniffiCallStatus
     )
 })
 }
@@ -4638,11 +4724,12 @@ public static func legacyNewFromRawExternalNullifier(externalNullifier: Uint256,
      */
 public static func newFromBytes(appId: String, action: Data?, signal: Data?, credentialType: CredentialType) -> ProofContext  {
     return try!  FfiConverterTypeProofContext_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_constructor_proofcontext_new_from_bytes(
         FfiConverterString.lower(appId),
         FfiConverterOptionData.lower(action),
         FfiConverterOptionData.lower(signal),
-        FfiConverterTypeCredentialType_lower(credentialType),$0
+        FfiConverterTypeCredentialType_lower(credentialType),uniffiCallStatus
     )
 })
 }
@@ -4670,11 +4757,12 @@ public static func newFromBytes(appId: String, action: Data?, signal: Data?, cre
      */
 public static func newFromSignalHash(appId: String, action: Data?, credentialType: CredentialType, signalHash: Uint256)throws  -> ProofContext  {
     return try  FfiConverterTypeProofContext_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_constructor_proofcontext_new_from_signal_hash(
         FfiConverterString.lower(appId),
         FfiConverterOptionData.lower(action),
         FfiConverterTypeCredentialType_lower(credentialType),
-        FfiConverterTypeUint256_lower(signalHash),$0
+        FfiConverterTypeUint256_lower(signalHash),uniffiCallStatus
     )
 })
 }
@@ -4686,8 +4774,9 @@ public static func newFromSignalHash(appId: String, action: Data?, credentialTyp
      */
 open func getCredentialType() -> CredentialType  {
     return try!  FfiConverterTypeCredentialType_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_proofcontext_get_credential_type(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -4697,8 +4786,9 @@ open func getCredentialType() -> CredentialType  {
      */
 open func getExternalNullifier() -> Uint256  {
     return try!  FfiConverterTypeUint256_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_proofcontext_get_external_nullifier(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -4708,8 +4798,9 @@ open func getExternalNullifier() -> Uint256  {
      */
 open func getSignalHash() -> Uint256  {
     return try!  FfiConverterTypeUint256_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_proofcontext_get_signal_hash(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -4869,8 +4960,9 @@ open class ProofOutput: ProofOutputProtocol, @unchecked Sendable {
      */
 open func getCredentialType() -> CredentialType  {
     return try!  FfiConverterTypeCredentialType_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_proofoutput_get_credential_type(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -4880,8 +4972,9 @@ open func getCredentialType() -> CredentialType  {
      */
 open func getMerkleRoot() -> Uint256  {
     return try!  FfiConverterTypeUint256_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_proofoutput_get_merkle_root(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -4891,8 +4984,9 @@ open func getMerkleRoot() -> Uint256  {
      */
 open func getNullifierHash() -> Uint256  {
     return try!  FfiConverterTypeUint256_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_proofoutput_get_nullifier_hash(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -4902,8 +4996,9 @@ open func getNullifierHash() -> Uint256  {
      */
 open func getProofAsString() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_proofoutput_get_proof_as_string(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -4916,8 +5011,9 @@ open func getProofAsString() -> String  {
      */
 open func toJson()throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_proofoutput_to_json(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -5060,8 +5156,9 @@ open class ProofRequest: ProofRequestProtocol, @unchecked Sendable {
      */
 public static func fromJson(json: String)throws  -> ProofRequest  {
     return try  FfiConverterTypeProofRequest_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_constructor_proofrequest_from_json(
-        FfiConverterString.lower(json),$0
+        FfiConverterString.lower(json),uniffiCallStatus
     )
 })
 }
@@ -5073,8 +5170,9 @@ public static func fromJson(json: String)throws  -> ProofRequest  {
      */
 open func id() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_proofrequest_id(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -5087,8 +5185,9 @@ open func id() -> String  {
      */
 open func toJson()throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_proofrequest_to_json(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -5098,8 +5197,9 @@ open func toJson()throws  -> String  {
      */
 open func version() -> UInt8  {
     return try!  FfiConverterUInt8.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_proofrequest_version(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -5248,8 +5348,9 @@ open class ProofResponse: ProofResponseProtocol, @unchecked Sendable {
      */
 open func error() -> String?  {
     return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_proofresponse_error(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -5259,8 +5360,9 @@ open func error() -> String?  {
      */
 open func id() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_proofresponse_id(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -5273,8 +5375,9 @@ open func id() -> String  {
      */
 open func toJson()throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_proofresponse_to_json(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -5284,8 +5387,9 @@ open func toJson()throws  -> String  {
      */
 open func version() -> UInt8  {
     return try!  FfiConverterUInt8.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_proofresponse_version(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -5452,9 +5556,10 @@ open class RecoveryBindingManager: RecoveryBindingManagerProtocol, @unchecked Se
 public convenience init(environment: Environment, userAgentBuilder: UserAgentBuilder)throws  {
     let handle =
         try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_constructor_recoverybindingmanager_new(
         FfiConverterTypeEnvironment_lower(environment),
-        FfiConverterTypeUserAgentBuilder_lower(userAgentBuilder),$0
+        FfiConverterTypeUserAgentBuilder_lower(userAgentBuilder),uniffiCallStatus
     )
 }
     self.init(unsafeFromHandle: handle)
@@ -5479,9 +5584,10 @@ public convenience init(environment: Environment, userAgentBuilder: UserAgentBui
      */
 public static func newWithBaseUrl(baseUrl: String, userAgentBuilder: UserAgentBuilder)throws  -> RecoveryBindingManager  {
     return try  FfiConverterTypeRecoveryBindingManager_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_constructor_recoverybindingmanager_new_with_base_url(
         FfiConverterString.lower(baseUrl),
-        FfiConverterTypeUserAgentBuilder_lower(userAgentBuilder),$0
+        FfiConverterTypeUserAgentBuilder_lower(userAgentBuilder),uniffiCallStatus
     )
 })
 }
@@ -5510,8 +5616,7 @@ open func bindRecoveryAgent(authenticator: Authenticator, sub: String, recoveryA
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_walletkit_core_fn_method_recoverybindingmanager_bind_recovery_agent(
-                    self.uniffiCloneHandle(),
-                    FfiConverterTypeAuthenticator_lower(authenticator),FfiConverterString.lower(sub),FfiConverterString.lower(recoveryAgentAddress)
+                        self.uniffiCloneHandle(),FfiConverterTypeAuthenticator_lower(authenticator),FfiConverterString.lower(sub),FfiConverterString.lower(recoveryAgentAddress)
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_void,
@@ -5539,8 +5644,7 @@ open func getRecoveryBinding(leafIndex: UInt64)async throws  -> RecoveryBinding 
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_walletkit_core_fn_method_recoverybindingmanager_get_recovery_binding(
-                    self.uniffiCloneHandle(),
-                    FfiConverterUInt64.lower(leafIndex)
+                        self.uniffiCloneHandle(),FfiConverterUInt64.lower(leafIndex)
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
@@ -5569,8 +5673,7 @@ open func unbindRecoveryAgent(authenticator: Authenticator, sub: String)async th
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_walletkit_core_fn_method_recoverybindingmanager_unbind_recovery_agent(
-                    self.uniffiCloneHandle(),
-                    FfiConverterTypeAuthenticator_lower(authenticator),FfiConverterString.lower(sub)
+                        self.uniffiCloneHandle(),FfiConverterTypeAuthenticator_lower(authenticator),FfiConverterString.lower(sub)
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_void,
@@ -5746,8 +5849,9 @@ open class StoragePaths: StoragePathsProtocol, @unchecked Sendable {
      */
 public static func fromRoot(root: String) -> StoragePaths  {
     return try!  FfiConverterTypeStoragePaths_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_constructor_storagepaths_from_root(
-        FfiConverterString.lower(root),$0
+        FfiConverterString.lower(root),uniffiCallStatus
     )
 })
 }
@@ -5759,8 +5863,9 @@ public static func fromRoot(root: String) -> StoragePaths  {
      */
 open func cacheDbPathString() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_storagepaths_cache_db_path_string(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -5770,8 +5875,9 @@ open func cacheDbPathString() -> String  {
      */
 open func groth16DirPathString() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_storagepaths_groth16_dir_path_string(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -5781,8 +5887,9 @@ open func groth16DirPathString() -> String  {
      */
 open func lockPathString() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_storagepaths_lock_path_string(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -5792,8 +5899,9 @@ open func lockPathString() -> String  {
      */
 open func nullifierGraphPathString() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_storagepaths_nullifier_graph_path_string(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -5803,8 +5911,9 @@ open func nullifierGraphPathString() -> String  {
      */
 open func nullifierZkeyPathString() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_storagepaths_nullifier_zkey_path_string(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -5814,8 +5923,9 @@ open func nullifierZkeyPathString() -> String  {
      */
 open func queryGraphPathString() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_storagepaths_query_graph_path_string(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -5825,8 +5935,9 @@ open func queryGraphPathString() -> String  {
      */
 open func queryZkeyPathString() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_storagepaths_query_zkey_path_string(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -5836,8 +5947,9 @@ open func queryZkeyPathString() -> String  {
      */
 open func rootPathString() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_storagepaths_root_path_string(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -5847,8 +5959,9 @@ open func rootPathString() -> String  {
      */
 open func vaultDbPathString() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_storagepaths_vault_db_path_string(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -5858,8 +5971,9 @@ open func vaultDbPathString() -> String  {
      */
 open func worldidDirPathString() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_storagepaths_worldid_dir_path_string(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -5996,8 +6110,9 @@ open class StorageProviderImpl: StorageProvider, @unchecked Sendable {
      */
 open func keystore() -> DeviceKeystore  {
     return try!  FfiConverterTypeDeviceKeystore_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_storageprovider_keystore(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -6007,8 +6122,9 @@ open func keystore() -> DeviceKeystore  {
      */
 open func blobStore() -> AtomicBlobStore  {
     return try!  FfiConverterTypeAtomicBlobStore_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_storageprovider_blob_store(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -6018,8 +6134,9 @@ open func blobStore() -> AtomicBlobStore  {
      */
 open func paths() -> StoragePaths  {
     return try!  FfiConverterTypeStoragePaths_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_storageprovider_paths(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -6262,9 +6379,10 @@ open class TfhNfcIssuer: TfhNfcIssuerProtocol, @unchecked Sendable {
 public convenience init(environment: Environment, userAgent: String) {
     let handle =
         try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_constructor_tfhnfcissuer_new(
         FfiConverterTypeEnvironment_lower(environment),
-        FfiConverterString.lower(userAgent),$0
+        FfiConverterString.lower(userAgent),uniffiCallStatus
     )
 }
     self.init(unsafeFromHandle: handle)
@@ -6296,8 +6414,7 @@ open func refreshNfcCredential(requestBody: String, headers: [String: String])as
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_walletkit_core_fn_method_tfhnfcissuer_refresh_nfc_credential(
-                    self.uniffiCloneHandle(),
-                    FfiConverterString.lower(requestBody),FfiConverterDictionaryStringString.lower(headers)
+                        self.uniffiCloneHandle(),FfiConverterString.lower(requestBody),FfiConverterDictionaryStringString.lower(headers)
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_u64,
@@ -6430,8 +6547,9 @@ open class UserAgent: UserAgentProtocol, @unchecked Sendable {
      */
 open func headerValue() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_useragent_header_value(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -6576,7 +6694,8 @@ open class UserAgentBuilder: UserAgentBuilderProtocol, @unchecked Sendable {
 public convenience init() {
     let handle =
         try! rustCall() {
-    uniffi_walletkit_core_fn_constructor_useragentbuilder_new($0
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_constructor_useragentbuilder_new(uniffiCallStatus
     )
 }
     self.init(unsafeFromHandle: handle)
@@ -6599,8 +6718,9 @@ public convenience init() {
      */
 open func build() -> UserAgent  {
     return try!  FfiConverterTypeUserAgent_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_useragentbuilder_build(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -6613,10 +6733,11 @@ open func build() -> UserAgent  {
      */
 open func withAppSegmentForClient(appVersion: String, clientName: String) -> UserAgentBuilder  {
     return try!  FfiConverterTypeUserAgentBuilder_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_useragentbuilder_with_app_segment_for_client(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(appVersion),
-        FfiConverterString.lower(clientName),$0
+        FfiConverterString.lower(clientName),uniffiCallStatus
     )
 })
 }
@@ -6626,10 +6747,11 @@ open func withAppSegmentForClient(appVersion: String, clientName: String) -> Use
      */
 open func withClientSegment(clientName: String, osVersion: String) -> UserAgentBuilder  {
     return try!  FfiConverterTypeUserAgentBuilder_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_useragentbuilder_with_client_segment(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(clientName),
-        FfiConverterString.lower(osVersion),$0
+        FfiConverterString.lower(osVersion),uniffiCallStatus
     )
 })
 }
@@ -6639,10 +6761,11 @@ open func withClientSegment(clientName: String, osVersion: String) -> UserAgentB
      */
 open func withSegment(name: String, version: String) -> UserAgentBuilder  {
     return try!  FfiConverterTypeUserAgentBuilder_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_useragentbuilder_with_segment(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(name),
-        FfiConverterString.lower(version),$0
+        FfiConverterString.lower(version),uniffiCallStatus
     )
 })
 }
@@ -6652,8 +6775,9 @@ open func withSegment(name: String, version: String) -> UserAgentBuilder  {
      */
 open func withWalletkitSegment() -> UserAgentBuilder  {
     return try!  FfiConverterTypeUserAgentBuilder_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_useragentbuilder_with_walletkit_segment(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
 }
@@ -6817,8 +6941,9 @@ open class VaultChangedListenerImpl: VaultChangedListener, @unchecked Sendable {
      * Called after a credential is added or removed.
      */
 open func onVaultChanged()  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_vaultchangedlistener_on_vault_changed(
-            self.uniffiCloneHandle(),$0
+            self.uniffiCloneHandle(),uniffiCallStatus
     )
 }
 }
@@ -7099,7 +7224,7 @@ public protocol WorldIdProtocol: AnyObject, Sendable {
      * use std::sync::Arc;
      *
      * # tokio_test::block_on(async {
-     * let world_id = WorldId::new(b"not_a_real_secret", &Environment::Staging);
+     * let world_id = WorldId::new(b"not_a_real_secret".to_vec(), &Environment::Staging);
      * let context = ProofContext::new("app_ce4cb73cb75fc3b73b71ffb4de178410", Some("my_action".to_string()), None, CredentialType::Device);
      * let proof = world_id.generate_proof(&context).await.unwrap();
      * assert_eq!(proof.nullifier_hash.to_padded_hex_string(), "0x302e253346d2b41a0fd71562ffc6e5ddcbab6d8ea3dd6d68e6a695b5639b1c37")
@@ -7183,9 +7308,10 @@ open class WorldId: WorldIdProtocol, @unchecked Sendable {
 public convenience init(secret: Data, environment: Environment) {
     let handle =
         try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_constructor_worldid_new(
         FfiConverterData.lower(secret),
-        FfiConverterTypeEnvironment_lower(environment),$0
+        FfiConverterTypeEnvironment_lower(environment),uniffiCallStatus
     )
 }
     self.init(unsafeFromHandle: handle)
@@ -7212,9 +7338,10 @@ public convenience init(secret: Data, environment: Environment) {
      */
 open func generateNullifierHash(context: ProofContext) -> Uint256  {
     return try!  FfiConverterTypeUint256_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_worldid_generate_nullifier_hash(
             self.uniffiCloneHandle(),
-        FfiConverterTypeProofContext_lower(context),$0
+        FfiConverterTypeProofContext_lower(context),uniffiCallStatus
     )
 })
 }
@@ -7236,7 +7363,7 @@ open func generateNullifierHash(context: ProofContext) -> Uint256  {
      * use std::sync::Arc;
      *
      * # tokio_test::block_on(async {
-     * let world_id = WorldId::new(b"not_a_real_secret", &Environment::Staging);
+     * let world_id = WorldId::new(b"not_a_real_secret".to_vec(), &Environment::Staging);
      * let context = ProofContext::new("app_ce4cb73cb75fc3b73b71ffb4de178410", Some("my_action".to_string()), None, CredentialType::Device);
      * let proof = world_id.generate_proof(&context).await.unwrap();
      * assert_eq!(proof.nullifier_hash.to_padded_hex_string(), "0x302e253346d2b41a0fd71562ffc6e5ddcbab6d8ea3dd6d68e6a695b5639b1c37")
@@ -7249,8 +7376,7 @@ open func generateProof(context: ProofContext)async throws  -> ProofOutput  {
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_walletkit_core_fn_method_worldid_generate_proof(
-                    self.uniffiCloneHandle(),
-                    FfiConverterTypeProofContext_lower(context)
+                        self.uniffiCloneHandle(),FfiConverterTypeProofContext_lower(context)
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_u64,
@@ -7271,9 +7397,10 @@ open func generateProof(context: ProofContext)async throws  -> ProofOutput  {
      */
 open func getIdentityCommitment(credentialType: CredentialType) -> Uint256  {
     return try!  FfiConverterTypeUint256_lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_worldid_get_identity_commitment(
             self.uniffiCloneHandle(),
-        FfiConverterTypeCredentialType_lower(credentialType),$0
+        FfiConverterTypeCredentialType_lower(credentialType),uniffiCallStatus
     )
 })
 }
@@ -7291,9 +7418,10 @@ open func getIdentityCommitment(credentialType: CredentialType) -> Uint256  {
      */
 open func isEqualTo(other: WorldId) -> Bool  {
     return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_worldid_is_equal_to(
             self.uniffiCloneHandle(),
-        FfiConverterTypeWorldId_lower(other),$0
+        FfiConverterTypeWorldId_lower(other),uniffiCallStatus
     )
 })
 }
@@ -8078,8 +8206,7 @@ public func FfiConverterTypeReplayGuardResult_lower(_ value: ReplayGuardResult) 
     return FfiConverterTypeReplayGuardResult.lower(value)
 }
 
-// Note that we don't yet support `indirect` for enums.
-// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
 /**
  * Kind of blob stored in the vault.
  *
@@ -8161,7 +8288,8 @@ public func FfiConverterTypeBlobKind_lower(_ value: BlobKind) -> RustBuffer {
 /**
  * Error returned by [`check_credentials_against_proof_request`].
  */
-public enum CredentialConstraintsCheckError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+public 
+enum CredentialConstraintsCheckError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
     
     
@@ -8255,8 +8383,7 @@ public func FfiConverterTypeCredentialConstraintsCheckError_lower(_ value: Crede
     return FfiConverterTypeCredentialConstraintsCheckError.lower(value)
 }
 
-// Note that we don't yet support `indirect` for enums.
-// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
 /**
  * A `CredentialType` represents a specific credential which can be presented by a World ID holder.
  *
@@ -8361,8 +8488,7 @@ public func FfiConverterTypeCredentialType_lower(_ value: CredentialType) -> Rus
 }
 
 
-// Note that we don't yet support `indirect` for enums.
-// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
 /**
  * Represents the environment in which a World ID is being presented and used.
  *
@@ -8389,8 +8515,9 @@ public enum Environment: Equatable, Hashable {
      */
 public func pohRecoveryAgentAddress() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_environment_poh_recovery_agent_address(
-            FfiConverterTypeEnvironment_lower(self),$0
+            FfiConverterTypeEnvironment_lower(self),uniffiCallStatus
     )
 })
 }
@@ -8400,8 +8527,9 @@ public func pohRecoveryAgentAddress() -> String  {
      */
 public func worldIdVerifierAddress() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_method_environment_world_id_verifier_address(
-            FfiConverterTypeEnvironment_lower(self),$0
+            FfiConverterTypeEnvironment_lower(self),uniffiCallStatus
     )
 })
 }
@@ -8463,8 +8591,7 @@ public func FfiConverterTypeEnvironment_lower(_ value: Environment) -> RustBuffe
 }
 
 
-// Note that we don't yet support `indirect` for enums.
-// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
 /**
  * Status of an account operation submitted through the gateway.
  */
@@ -8591,8 +8718,7 @@ public func FfiConverterTypeGatewayRequestStatus_lower(_ value: GatewayRequestSt
 }
 
 
-// Note that we don't yet support `indirect` for enums.
-// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
 /**
  * Enumeration of possible log levels for foreign logger callbacks.
  */
@@ -8697,8 +8823,7 @@ public func FfiConverterTypeLogLevel_lower(_ value: LogLevel) -> RustBuffer {
 }
 
 
-// Note that we don't yet support `indirect` for enums.
-// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
 /**
  * Region for node selection.
  */
@@ -8783,8 +8908,7 @@ public func FfiConverterTypeRegion_lower(_ value: Region) -> RustBuffer {
 }
 
 
-// Note that we don't yet support `indirect` for enums.
-// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
 /**
  * Registration status for a World ID being created through the gateway.
  */
@@ -8899,8 +9023,7 @@ public func FfiConverterTypeRegistrationStatus_lower(_ value: RegistrationStatus
 }
 
 
-// Note that we don't yet support `indirect` for enums.
-// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
 /**
  * FFI-friendly replay guard result kind.
  */
@@ -8979,7 +9102,8 @@ public func FfiConverterTypeReplayGuardKind_lower(_ value: ReplayGuardKind) -> R
 /**
  * Errors raised by credential storage primitives.
  */
-public enum StorageError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+public 
+enum StorageError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
     
     
@@ -9269,7 +9393,8 @@ public func FfiConverterTypeStorageError_lower(_ value: StorageError) -> RustBuf
 /**
  * Error outputs from `WalletKit`
  */
-public enum WalletKitError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+public 
+enum WalletKitError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
     
     
@@ -10004,10 +10129,6 @@ fileprivate struct FfiConverterDictionaryStringString: FfiConverterRustBuffer {
 
 
 
-/**
- * Typealias from the type name used in the UDL file to the custom type.  This
- * is needed because the UDL type name is used in function/method signatures.
- */
 public typealias Uint256 = BigUInt
 
 
@@ -10110,8 +10231,9 @@ fileprivate func uniffiFutureContinuationCallback(handle: UInt64, pollResult: In
  */
 public func recoveryDataFromSeed(seed: Data)throws  -> RecoveryData  {
     return try  FfiConverterTypeRecoveryData_lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_func_recovery_data_from_seed(
-        FfiConverterData.lower(seed),$0
+        FfiConverterData.lower(seed),uniffiCallStatus
     )
 })
 }
@@ -10138,8 +10260,9 @@ public func recoveryDataFromSeed(seed: Data)throws  -> RecoveryData  {
  */
 public func validateAuthenticatorPubkey(authenticatorPubkey: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_func_validate_authenticator_pubkey(
-        FfiConverterString.lower(authenticatorPubkey),$0
+        FfiConverterString.lower(authenticatorPubkey),uniffiCallStatus
     )
 })
 }
@@ -10149,9 +10272,10 @@ public func validateAuthenticatorPubkey(authenticatorPubkey: String)throws  -> S
  * Useful for verifying that the logging bridge is wired up correctly.
  */
 public func emitLog(level: LogLevel, message: String)  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_func_emit_log(
         FfiConverterTypeLogLevel_lower(level),
-        FfiConverterString.lower(message),$0
+        FfiConverterString.lower(message),uniffiCallStatus
     )
 }
 }
@@ -10170,9 +10294,10 @@ public func emitLog(level: LogLevel, message: String)  {try! rustCall() {
  * Panics if the dedicated logger delivery thread cannot be spawned (native only).
  */
 public func initLogging(logger: Logger, level: LogLevel?)  {try! rustCall() {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_func_init_logging(
         FfiConverterTypeLogger_lower(logger),
-        FfiConverterOptionTypeLogLevel.lower(level),$0
+        FfiConverterOptionTypeLogLevel.lower(level),uniffiCallStatus
     )
 }
 }
@@ -10190,10 +10315,11 @@ public func initLogging(logger: Logger, level: LogLevel?)  {try! rustCall() {
  */
 public func checkCredentialsAgainstProofRequest(request: ProofRequest, store: CredentialStore, now: UInt64)throws  -> CredentialConstraintsCheckResult  {
     return try  FfiConverterTypeCredentialConstraintsCheckResult_lift(try rustCallWithError(FfiConverterTypeCredentialConstraintsCheckError_lift) {
+        uniffiCallStatus in
     uniffi_walletkit_core_fn_func_check_credentials_against_proof_request(
         FfiConverterTypeProofRequest_lower(request),
         FfiConverterTypeCredentialStore_lower(store),
-        FfiConverterUInt64.lower(now),$0
+        FfiConverterUInt64.lower(now),uniffiCallStatus
     )
 })
 }
@@ -10213,382 +10339,382 @@ private let initializationResult: InitializationResult = {
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
     }
-    if (uniffi_walletkit_core_checksum_func_recovery_data_from_seed() != 17579) {
+    if (uniffi_walletkit_core_checksum_func_recovery_data_from_seed() != 216) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_func_validate_authenticator_pubkey() != 60852) {
+    if (uniffi_walletkit_core_checksum_func_validate_authenticator_pubkey() != 8057) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_func_emit_log() != 60718) {
+    if (uniffi_walletkit_core_checksum_func_emit_log() != 15829) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_func_init_logging() != 19546) {
+    if (uniffi_walletkit_core_checksum_func_init_logging() != 31382) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_func_check_credentials_against_proof_request() != 4769) {
+    if (uniffi_walletkit_core_checksum_func_check_credentials_against_proof_request() != 65024) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_compute_credential_sub() != 11498) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_compute_credential_sub() != 33647) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_danger_sign_challenge() != 11600) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_danger_sign_challenge() != 35306) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_danger_sign_initiate_recovery_agent_update() != 1880) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_danger_sign_initiate_recovery_agent_update() != 60718) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_generate_credential_blinding_factor_remote() != 39820) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_generate_credential_blinding_factor_remote() != 52918) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_generate_proof() != 3542) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_generate_proof() != 58185) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_get_authenticator_pubkeys() != 30655) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_get_authenticator_pubkeys() != 32287) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_get_packed_account_data_remote() != 55961) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_get_packed_account_data_remote() != 61303) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_has_authenticator_pubkey() != 27262) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_has_authenticator_pubkey() != 3877) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_insert_authenticator() != 37665) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_insert_authenticator() != 26318) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_leaf_index() != 2189) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_leaf_index() != 5012) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_onchain_address() != 44374) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_onchain_address() != 51819) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_packed_account_data() != 38096) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_packed_account_data() != 6733) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_poll_status() != 2306) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_poll_status() != 41589) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_prove_credential_sub() != 42354) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_prove_credential_sub() != 48710) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_remove_authenticator() != 56221) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_remove_authenticator() != 12778) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_revert_recovery_agent_update() != 62407) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_revert_recovery_agent_update() != 43256) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_update_recovery_agent() != 52803) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_update_recovery_agent() != 20545) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_destroy_storage() != 59925) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_destroy_storage() != 22479) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_init_storage() != 17038) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_init_storage() != 23542) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_initializingauthenticator_poll_status() != 61377) {
+    if (uniffi_walletkit_core_checksum_method_initializingauthenticator_poll_status() != 7043) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_cachingzkartifacts_as_zk_artifact_source() != 55109) {
+    if (uniffi_walletkit_core_checksum_method_cachingzkartifacts_as_zk_artifact_source() != 20636) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_cachingzkartifacts_preload() != 11909) {
+    if (uniffi_walletkit_core_checksum_method_cachingzkartifacts_preload() != 27731) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_embeddedzkartifacts_as_zk_artifact_source() != 8438) {
+    if (uniffi_walletkit_core_checksum_method_embeddedzkartifacts_as_zk_artifact_source() != 24058) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credential_associated_data_commitment() != 56904) {
+    if (uniffi_walletkit_core_checksum_method_credential_associated_data_commitment() != 51192) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credential_expires_at() != 5794) {
+    if (uniffi_walletkit_core_checksum_method_credential_expires_at() != 46168) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credential_issuer_schema_id() != 35384) {
+    if (uniffi_walletkit_core_checksum_method_credential_issuer_schema_id() != 30304) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credential_sub() != 28505) {
+    if (uniffi_walletkit_core_checksum_method_credential_sub() != 10460) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_fieldelement_to_bytes() != 2459) {
+    if (uniffi_walletkit_core_checksum_method_fieldelement_to_bytes() != 1116) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_fieldelement_to_hex_string() != 48989) {
+    if (uniffi_walletkit_core_checksum_method_fieldelement_to_hex_string() != 21343) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_bind_recovery_agent() != 38594) {
+    if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_bind_recovery_agent() != 11385) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_get_recovery_binding() != 11792) {
+    if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_get_recovery_binding() != 26936) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_unbind_recovery_agent() != 41314) {
+    if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_unbind_recovery_agent() != 40826) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_tfhnfcissuer_refresh_nfc_credential() != 57946) {
+    if (uniffi_walletkit_core_checksum_method_tfhnfcissuer_refresh_nfc_credential() != 22698) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_logger_log() != 55679) {
+    if (uniffi_walletkit_core_checksum_method_logger_log() != 9106) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_ownershipproof_encode() != 18078) {
+    if (uniffi_walletkit_core_checksum_method_ownershipproof_encode() != 33605) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_ownershipproof_encode_b64() != 58705) {
+    if (uniffi_walletkit_core_checksum_method_ownershipproof_encode_b64() != 2901) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_ownershipproof_merkle_root() != 22448) {
+    if (uniffi_walletkit_core_checksum_method_ownershipproof_merkle_root() != 49480) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_proofrequest_id() != 64235) {
+    if (uniffi_walletkit_core_checksum_method_proofrequest_id() != 61200) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_proofrequest_to_json() != 43149) {
+    if (uniffi_walletkit_core_checksum_method_proofrequest_to_json() != 18742) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_proofrequest_version() != 53769) {
+    if (uniffi_walletkit_core_checksum_method_proofrequest_version() != 17136) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_proofresponse_error() != 44642) {
+    if (uniffi_walletkit_core_checksum_method_proofresponse_error() != 4059) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_proofresponse_id() != 28770) {
+    if (uniffi_walletkit_core_checksum_method_proofresponse_id() != 4348) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_proofresponse_to_json() != 14808) {
+    if (uniffi_walletkit_core_checksum_method_proofresponse_to_json() != 35886) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_proofresponse_version() != 46855) {
+    if (uniffi_walletkit_core_checksum_method_proofresponse_version() != 7353) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_danger_delete_all_credentials() != 47974) {
+    if (uniffi_walletkit_core_checksum_method_credentialstore_danger_delete_all_credentials() != 16456) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_delete_credential() != 48725) {
+    if (uniffi_walletkit_core_checksum_method_credentialstore_delete_credential() != 64758) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_destroy_storage() != 59451) {
+    if (uniffi_walletkit_core_checksum_method_credentialstore_destroy_storage() != 32113) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_export_vault_for_backup() != 8389) {
+    if (uniffi_walletkit_core_checksum_method_credentialstore_export_vault_for_backup() != 38118) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_import_vault_from_backup() != 13143) {
+    if (uniffi_walletkit_core_checksum_method_credentialstore_import_vault_from_backup() != 39250) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_init() != 6887) {
+    if (uniffi_walletkit_core_checksum_method_credentialstore_init() != 11999) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_list_credentials() != 46271) {
+    if (uniffi_walletkit_core_checksum_method_credentialstore_list_credentials() != 52779) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_set_vault_changed_listener() != 47638) {
+    if (uniffi_walletkit_core_checksum_method_credentialstore_set_vault_changed_listener() != 40106) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_storage_paths() != 17739) {
+    if (uniffi_walletkit_core_checksum_method_credentialstore_storage_paths() != 27586) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_store_credential() != 21664) {
+    if (uniffi_walletkit_core_checksum_method_credentialstore_store_credential() != 52198) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_storagepaths_cache_db_path_string() != 19078) {
+    if (uniffi_walletkit_core_checksum_method_storagepaths_cache_db_path_string() != 39382) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_storagepaths_groth16_dir_path_string() != 57824) {
+    if (uniffi_walletkit_core_checksum_method_storagepaths_groth16_dir_path_string() != 15148) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_storagepaths_lock_path_string() != 45603) {
+    if (uniffi_walletkit_core_checksum_method_storagepaths_lock_path_string() != 58854) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_storagepaths_nullifier_graph_path_string() != 12055) {
+    if (uniffi_walletkit_core_checksum_method_storagepaths_nullifier_graph_path_string() != 47949) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_storagepaths_nullifier_zkey_path_string() != 59479) {
+    if (uniffi_walletkit_core_checksum_method_storagepaths_nullifier_zkey_path_string() != 56955) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_storagepaths_query_graph_path_string() != 18563) {
+    if (uniffi_walletkit_core_checksum_method_storagepaths_query_graph_path_string() != 13569) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_storagepaths_query_zkey_path_string() != 42200) {
+    if (uniffi_walletkit_core_checksum_method_storagepaths_query_zkey_path_string() != 16602) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_storagepaths_root_path_string() != 17906) {
+    if (uniffi_walletkit_core_checksum_method_storagepaths_root_path_string() != 53708) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_storagepaths_vault_db_path_string() != 24656) {
+    if (uniffi_walletkit_core_checksum_method_storagepaths_vault_db_path_string() != 52719) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_storagepaths_worldid_dir_path_string() != 55994) {
+    if (uniffi_walletkit_core_checksum_method_storagepaths_worldid_dir_path_string() != 19604) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_atomicblobstore_read() != 6014) {
+    if (uniffi_walletkit_core_checksum_method_atomicblobstore_read() != 45971) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_atomicblobstore_write_atomic() != 13007) {
+    if (uniffi_walletkit_core_checksum_method_atomicblobstore_write_atomic() != 7109) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_atomicblobstore_delete() != 48362) {
+    if (uniffi_walletkit_core_checksum_method_atomicblobstore_delete() != 14985) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_devicekeystore_seal() != 2139) {
+    if (uniffi_walletkit_core_checksum_method_devicekeystore_seal() != 55546) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_devicekeystore_open_sealed() != 11049) {
+    if (uniffi_walletkit_core_checksum_method_devicekeystore_open_sealed() != 43165) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_storageprovider_keystore() != 19849) {
+    if (uniffi_walletkit_core_checksum_method_storageprovider_keystore() != 7050) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_storageprovider_blob_store() != 713) {
+    if (uniffi_walletkit_core_checksum_method_storageprovider_blob_store() != 39245) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_storageprovider_paths() != 46848) {
+    if (uniffi_walletkit_core_checksum_method_storageprovider_paths() != 52845) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_vaultchangedlistener_on_vault_changed() != 30325) {
+    if (uniffi_walletkit_core_checksum_method_vaultchangedlistener_on_vault_changed() != 22872) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_useragent_header_value() != 52067) {
+    if (uniffi_walletkit_core_checksum_method_useragent_header_value() != 31714) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_useragentbuilder_build() != 34488) {
+    if (uniffi_walletkit_core_checksum_method_useragentbuilder_build() != 62525) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_useragentbuilder_with_app_segment_for_client() != 53904) {
+    if (uniffi_walletkit_core_checksum_method_useragentbuilder_with_app_segment_for_client() != 36631) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_useragentbuilder_with_client_segment() != 4506) {
+    if (uniffi_walletkit_core_checksum_method_useragentbuilder_with_client_segment() != 46331) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_useragentbuilder_with_segment() != 52442) {
+    if (uniffi_walletkit_core_checksum_method_useragentbuilder_with_segment() != 21736) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_useragentbuilder_with_walletkit_segment() != 8005) {
+    if (uniffi_walletkit_core_checksum_method_useragentbuilder_with_walletkit_segment() != 33110) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_addressbook_generate_proof_context() != 32396) {
+    if (uniffi_walletkit_core_checksum_method_addressbook_generate_proof_context() != 57242) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_proofcontext_get_credential_type() != 55876) {
+    if (uniffi_walletkit_core_checksum_method_proofcontext_get_credential_type() != 27532) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_proofcontext_get_external_nullifier() != 13444) {
+    if (uniffi_walletkit_core_checksum_method_proofcontext_get_external_nullifier() != 6178) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_proofcontext_get_signal_hash() != 31443) {
+    if (uniffi_walletkit_core_checksum_method_proofcontext_get_signal_hash() != 42164) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_proofoutput_get_credential_type() != 42354) {
+    if (uniffi_walletkit_core_checksum_method_proofoutput_get_credential_type() != 46121) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_proofoutput_get_merkle_root() != 57428) {
+    if (uniffi_walletkit_core_checksum_method_proofoutput_get_merkle_root() != 59413) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_proofoutput_get_nullifier_hash() != 839) {
+    if (uniffi_walletkit_core_checksum_method_proofoutput_get_nullifier_hash() != 57893) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_proofoutput_get_proof_as_string() != 829) {
+    if (uniffi_walletkit_core_checksum_method_proofoutput_get_proof_as_string() != 60746) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_proofoutput_to_json() != 19556) {
+    if (uniffi_walletkit_core_checksum_method_proofoutput_to_json() != 57845) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_worldid_generate_nullifier_hash() != 17959) {
+    if (uniffi_walletkit_core_checksum_method_worldid_generate_nullifier_hash() != 24240) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_worldid_generate_proof() != 52435) {
+    if (uniffi_walletkit_core_checksum_method_worldid_generate_proof() != 43661) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_worldid_get_identity_commitment() != 23355) {
+    if (uniffi_walletkit_core_checksum_method_worldid_get_identity_commitment() != 29896) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_worldid_is_equal_to() != 27629) {
+    if (uniffi_walletkit_core_checksum_method_worldid_is_equal_to() != 19681) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_authenticator_init() != 1045) {
+    if (uniffi_walletkit_core_checksum_constructor_authenticator_init() != 2741) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_authenticator_init_with_defaults() != 17526) {
+    if (uniffi_walletkit_core_checksum_constructor_authenticator_init_with_defaults() != 33778) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_authenticator_init_with_ohttp_defaults() != 34526) {
+    if (uniffi_walletkit_core_checksum_constructor_authenticator_init_with_ohttp_defaults() != 64573) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_initializingauthenticator_register() != 35471) {
+    if (uniffi_walletkit_core_checksum_constructor_initializingauthenticator_register() != 134) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_initializingauthenticator_register_with_defaults() != 45761) {
+    if (uniffi_walletkit_core_checksum_constructor_initializingauthenticator_register_with_defaults() != 35103) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_initializingauthenticator_register_with_ohttp_defaults() != 53643) {
+    if (uniffi_walletkit_core_checksum_constructor_initializingauthenticator_register_with_ohttp_defaults() != 19608) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_cachingzkartifacts_new() != 40908) {
+    if (uniffi_walletkit_core_checksum_constructor_cachingzkartifacts_new() != 32474) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_embeddedzkartifacts_new() != 57570) {
+    if (uniffi_walletkit_core_checksum_constructor_embeddedzkartifacts_new() != 40766) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_credential_from_bytes() != 47479) {
+    if (uniffi_walletkit_core_checksum_constructor_credential_from_bytes() != 44337) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_fieldelement_from_bytes() != 17879) {
+    if (uniffi_walletkit_core_checksum_constructor_fieldelement_from_bytes() != 21546) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_fieldelement_from_u64() != 17661) {
+    if (uniffi_walletkit_core_checksum_constructor_fieldelement_from_u64() != 116) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_fieldelement_try_from_hex_string() != 7854) {
+    if (uniffi_walletkit_core_checksum_constructor_fieldelement_try_from_hex_string() != 24521) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_recoverybindingmanager_new() != 13568) {
+    if (uniffi_walletkit_core_checksum_constructor_recoverybindingmanager_new() != 37272) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_recoverybindingmanager_new_with_base_url() != 2129) {
+    if (uniffi_walletkit_core_checksum_constructor_recoverybindingmanager_new_with_base_url() != 55103) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_tfhnfcissuer_new() != 54943) {
+    if (uniffi_walletkit_core_checksum_constructor_tfhnfcissuer_new() != 23309) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_proofrequest_from_json() != 5834) {
+    if (uniffi_walletkit_core_checksum_constructor_proofrequest_from_json() != 22984) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_credentialstore_from_provider_arc() != 5144) {
+    if (uniffi_walletkit_core_checksum_constructor_credentialstore_from_provider_arc() != 12655) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_credentialstore_new_with_components() != 51696) {
+    if (uniffi_walletkit_core_checksum_constructor_credentialstore_new_with_components() != 55056) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_storagepaths_from_root() != 48567) {
+    if (uniffi_walletkit_core_checksum_constructor_storagepaths_from_root() != 25339) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_useragentbuilder_new() != 59283) {
+    if (uniffi_walletkit_core_checksum_constructor_useragentbuilder_new() != 55058) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_addressbook_new() != 61276) {
+    if (uniffi_walletkit_core_checksum_constructor_addressbook_new() != 3997) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_merkletreeproof_from_identity_commitment() != 44877) {
+    if (uniffi_walletkit_core_checksum_constructor_merkletreeproof_from_identity_commitment() != 33642) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_merkletreeproof_from_json_proof() != 41806) {
+    if (uniffi_walletkit_core_checksum_constructor_merkletreeproof_from_json_proof() != 53926) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_proofcontext_legacy_new_from_pre_image_external_nullifier() != 38700) {
+    if (uniffi_walletkit_core_checksum_constructor_proofcontext_legacy_new_from_pre_image_external_nullifier() != 63795) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_proofcontext_legacy_new_from_raw_external_nullifier() != 37549) {
+    if (uniffi_walletkit_core_checksum_constructor_proofcontext_legacy_new_from_raw_external_nullifier() != 12626) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_proofcontext_new() != 45127) {
+    if (uniffi_walletkit_core_checksum_constructor_proofcontext_new() != 29057) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_proofcontext_new_from_bytes() != 44050) {
+    if (uniffi_walletkit_core_checksum_constructor_proofcontext_new_from_bytes() != 45493) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_proofcontext_new_from_signal_hash() != 25497) {
+    if (uniffi_walletkit_core_checksum_constructor_proofcontext_new_from_signal_hash() != 48477) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_worldid_new() != 41503) {
+    if (uniffi_walletkit_core_checksum_constructor_worldid_new() != 10135) {
         return InitializationResult.apiChecksumMismatch
     }
 

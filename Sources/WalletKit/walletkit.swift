@@ -1284,6 +1284,7 @@ public protocol AuthenticatorProtocol: AnyObject, Sendable {
      *
      * # Arguments
      * * `nonce` - A field element provided by the Issuer to prevent replay.
+     * * `context` - A field element identifying the issuer operation being authorized.
      * * `blinding_factor` - The credential blinding factor previously used to
      * derive the credential `sub`.
      * * `sub` - The credential `sub` (commitment) to prove ownership of.
@@ -1296,7 +1297,7 @@ public protocol AuthenticatorProtocol: AnyObject, Sendable {
      * fetched from the indexer.
      * - Returns [`WalletKitError::ProofGeneration`] if the ZK proof fails.
      */
-    func proveCredentialSub(nonce: FieldElement, blindingFactor: FieldElement, sub: FieldElement) async throws  -> OwnershipProof
+    func proveCredentialSub(nonce: FieldElement, context: FieldElement, blindingFactor: FieldElement, sub: FieldElement) async throws  -> OwnershipProof
     
     /**
      * Removes an authenticator from the holder's World ID account.
@@ -1835,6 +1836,7 @@ open func pollStatus(requestId: String)async throws  -> GatewayRequestStatus  {
      *
      * # Arguments
      * * `nonce` - A field element provided by the Issuer to prevent replay.
+     * * `context` - A field element identifying the issuer operation being authorized.
      * * `blinding_factor` - The credential blinding factor previously used to
      * derive the credential `sub`.
      * * `sub` - The credential `sub` (commitment) to prove ownership of.
@@ -1847,12 +1849,12 @@ open func pollStatus(requestId: String)async throws  -> GatewayRequestStatus  {
      * fetched from the indexer.
      * - Returns [`WalletKitError::ProofGeneration`] if the ZK proof fails.
      */
-open func proveCredentialSub(nonce: FieldElement, blindingFactor: FieldElement, sub: FieldElement)async throws  -> OwnershipProof  {
+open func proveCredentialSub(nonce: FieldElement, context: FieldElement, blindingFactor: FieldElement, sub: FieldElement)async throws  -> OwnershipProof  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_walletkit_core_fn_method_authenticator_prove_credential_sub(
-                        self.uniffiCloneHandle(),FfiConverterTypeFieldElement_lower(nonce),FfiConverterTypeFieldElement_lower(blindingFactor),FfiConverterTypeFieldElement_lower(sub)
+                        self.uniffiCloneHandle(),FfiConverterTypeFieldElement_lower(nonce),FfiConverterTypeFieldElement_lower(context),FfiConverterTypeFieldElement_lower(blindingFactor),FfiConverterTypeFieldElement_lower(sub)
                 )
             },
             pollFunc: ffi_walletkit_core_rust_future_poll_u64,
@@ -10393,7 +10395,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_authenticator_poll_status() != 41589) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_prove_credential_sub() != 48710) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_prove_credential_sub() != 40590) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_authenticator_remove_authenticator() != 12778) {

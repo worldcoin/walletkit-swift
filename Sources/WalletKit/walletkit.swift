@@ -2378,6 +2378,26 @@ public protocol CredentialProtocol: AnyObject, Sendable {
     func associatedDataCommitment()  -> FieldElement
     
     /**
+     * Returns the credential's raw claims, in schema order.
+     *
+     * Each claim is a field element; interpretation is defined by the issuer
+     * schema ([`Self::issuer_schema_id`]). Unset slots hold the zero field
+     * element. This exposes nothing [`Self::to_bytes`] doesn't already
+     * serialize — it is an accessor, not a disclosure mechanism; whether and
+     * which claims leave the device is entirely the host app's policy.
+     */
+    func claims()  -> [FieldElement]
+    
+    /**
+     * Returns the credential's raw claims as hex-encoded, padded strings, in
+     * schema order.
+     *
+     * Convenience over [`Self::claims`] using the same encoding claims carry
+     * in credential JSON.
+     */
+    func claimsHex()  -> [String]
+    
+    /**
      * Returns the credential's expiration timestamp (unix seconds).
      */
     func expiresAt()  -> UInt64
@@ -2477,6 +2497,40 @@ open func associatedDataCommitment() -> FieldElement  {
     return try!  FfiConverterTypeFieldElement_lift(try! rustCall() {
         uniffiCallStatus in
     uniffi_walletkit_core_fn_method_credential_associated_data_commitment(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Returns the credential's raw claims, in schema order.
+     *
+     * Each claim is a field element; interpretation is defined by the issuer
+     * schema ([`Self::issuer_schema_id`]). Unset slots hold the zero field
+     * element. This exposes nothing [`Self::to_bytes`] doesn't already
+     * serialize — it is an accessor, not a disclosure mechanism; whether and
+     * which claims leave the device is entirely the host app's policy.
+     */
+open func claims() -> [FieldElement]  {
+    return try!  FfiConverterSequenceTypeFieldElement.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_credential_claims(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Returns the credential's raw claims as hex-encoded, padded strings, in
+     * schema order.
+     *
+     * Convenience over [`Self::claims`] using the same encoding claims carry
+     * in credential JSON.
+     */
+open func claimsHex() -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_credential_claims_hex(
             self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
@@ -2632,6 +2686,21 @@ public protocol CredentialStoreProtocol: AnyObject, Sendable {
      * Returns an error if the store is not initialized or the export fails.
      */
     func exportVaultForBackup() throws  -> Data
+    
+    /**
+     * Retrieves the most recent non-expired credential matching the issuer
+     * schema ID, or `None` when the store holds no usable match.
+     *
+     * This is the same selection `generate_proof` uses when building its
+     * credential inputs, so fields read from the returned credential (e.g.
+     * [`Credential::claims_hex`]) describe the credential a proof for that
+     * schema is generated against.
+     *
+     * # Errors
+     *
+     * Returns an error if the credential query fails.
+     */
+    func fetchCredential(issuerSchemaId: UInt64, now: UInt64) throws  -> Credential?
     
     /**
      * Imports credentials from an in-memory plaintext vault backup.
@@ -2874,6 +2943,30 @@ open func exportVaultForBackup()throws  -> Data  {
         uniffiCallStatus in
     uniffi_walletkit_core_fn_method_credentialstore_export_vault_for_backup(
             self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Retrieves the most recent non-expired credential matching the issuer
+     * schema ID, or `None` when the store holds no usable match.
+     *
+     * This is the same selection `generate_proof` uses when building its
+     * credential inputs, so fields read from the returned credential (e.g.
+     * [`Credential::claims_hex`]) describe the credential a proof for that
+     * schema is generated against.
+     *
+     * # Errors
+     *
+     * Returns an error if the credential query fails.
+     */
+open func fetchCredential(issuerSchemaId: UInt64, now: UInt64)throws  -> Credential?  {
+    return try  FfiConverterOptionTypeCredential.lift(try rustCallWithError(FfiConverterTypeStorageError_lift) {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_credentialstore_fetch_credential(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(issuerSchemaId),
+        FfiConverterUInt64.lower(now),uniffiCallStatus
     )
 })
 }
@@ -9982,6 +10075,30 @@ fileprivate struct FfiConverterOptionData: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeCredential: FfiConverterRustBuffer {
+    typealias SwiftType = Credential?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeCredential.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeCredential.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeLogLevel: FfiConverterRustBuffer {
     typealias SwiftType = LogLevel?
 
@@ -10024,6 +10141,56 @@ fileprivate struct FfiConverterOptionTypeRegion: FfiConverterRustBuffer {
         case 1: return try FfiConverterTypeRegion.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
+    typealias SwiftType = [String]
+
+    public static func write(_ value: [String], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterString.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [String]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterString.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFieldElement: FfiConverterRustBuffer {
+    typealias SwiftType = [FieldElement]
+
+    public static func write(_ value: [FieldElement], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFieldElement.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FieldElement] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FieldElement]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFieldElement.read(from: &buf))
+        }
+        return seq
     }
 }
 
@@ -10428,6 +10595,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_credential_associated_data_commitment() != 51192) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_method_credential_claims() != 51220) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_credential_claims_hex() != 59684) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_method_credential_expires_at() != 46168) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -10498,6 +10671,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_credentialstore_export_vault_for_backup() != 38118) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_credentialstore_fetch_credential() != 52327) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_credentialstore_import_vault_from_backup() != 39250) {

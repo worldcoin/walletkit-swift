@@ -7945,9 +7945,13 @@ public struct ActivityEntry: Equatable, Hashable {
      */
     public var id: UInt64?
     /**
-     * The relying party identifier.
+     * The relying party identifier the request was made against.
      */
     public var rpId: UInt64
+    /**
+     * The application that made the request.
+     */
+    public var appIdentifier: String
     /**
      * Host-app-defined identifier correlating this entry with its request.
      */
@@ -7980,8 +7984,11 @@ public struct ActivityEntry: Equatable, Hashable {
          * Unique identifier for this entry.
          */id: UInt64?, 
         /**
-         * The relying party identifier.
+         * The relying party identifier the request was made against.
          */rpId: UInt64, 
+        /**
+         * The application that made the request.
+         */appIdentifier: String, 
         /**
          * Host-app-defined identifier correlating this entry with its request.
          */clientId: String, 
@@ -8002,6 +8009,7 @@ public struct ActivityEntry: Equatable, Hashable {
          */failureReason: ActivityFailureReason?) {
         self.id = id
         self.rpId = rpId
+        self.appIdentifier = appIdentifier
         self.clientId = clientId
         self.`protocol` = `protocol`
         self.timestamp = timestamp
@@ -8028,6 +8036,7 @@ public struct FfiConverterTypeActivityEntry: FfiConverterRustBuffer {
             try ActivityEntry(
                 id: FfiConverterOptionUInt64.read(from: &buf), 
                 rpId: FfiConverterUInt64.read(from: &buf), 
+                appIdentifier: FfiConverterString.read(from: &buf), 
                 clientId: FfiConverterString.read(from: &buf), 
                 protocol: FfiConverterTypeProtocolVersion.read(from: &buf), 
                 timestamp: FfiConverterOptionUInt64.read(from: &buf), 
@@ -8040,6 +8049,7 @@ public struct FfiConverterTypeActivityEntry: FfiConverterRustBuffer {
     public static func write(_ value: ActivityEntry, into buf: inout [UInt8]) {
         FfiConverterOptionUInt64.write(value.id, into: &buf)
         FfiConverterUInt64.write(value.rpId, into: &buf)
+        FfiConverterString.write(value.appIdentifier, into: &buf)
         FfiConverterString.write(value.clientId, into: &buf)
         FfiConverterTypeProtocolVersion.write(value.`protocol`, into: &buf)
         FfiConverterOptionUInt64.write(value.timestamp, into: &buf)

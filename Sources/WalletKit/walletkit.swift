@@ -536,22 +536,6 @@ fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterFloat: FfiConverterPrimitive {
-    typealias FfiType = Float
-    typealias SwiftType = Float
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Float {
-        return try lift(readFloat(&buf))
-    }
-
-    public static func write(_ value: Float, into buf: inout [UInt8]) {
-        writeFloat(&buf, lower(value))
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
 fileprivate struct FfiConverterBool : FfiConverter {
     typealias FfiType = Int8
     typealias SwiftType = Bool
@@ -4173,238 +4157,6 @@ public func FfiConverterTypeFieldElement_lower(_ value: FieldElement) -> UInt64 
 
 
 /**
- * A simple wrapper around of `FlamingoVerifierClient`. Flamingo Verifier is a cloud TEE service for attested embedding generation and comparison.
- */
-public protocol FlamingoMatcherProtocol: AnyObject, Sendable {
-    
-    /**
-     * Performs an attested 3-way embedding match.
-     *
-     * - Fetches the enclave assignment and verifies its attestation against the trusted PCRs.
-     * - Encrypts and sends the match inputs using the enclave's attested public key.
-     * - Decrypts the result and, on success, verifies the token's signature and signing-key attestation.
-     *
-     * # Errors
-     *
-     * Returns [`FlamingoError::InvalidInput`] before making a network request when a caller value
-     * is unusable, or [`FlamingoError::Configuration`] if trusted measurements are missing.
-     * Other failures are returned as [`FlamingoError::Verifier`].
-     */
-    func performMatch(request: FlamingoMatchRequest) async throws  -> FlamingoMatchOutcome
-    
-    /**
-     * Returns a new instance with these default headers, replacing any previously configured set.
-     *
-     * Use this to set authorization, client name, or other headers. The `Cookie` header is not allowed; the client manages affinity cookies automatically.
-     *
-     * # Errors
-     * Returns [`FlamingoError::Configuration`] for invalid names/values, case-insensitive duplicate
-     * names, or a caller-supplied `Cookie` header (the client owns affinity cookies).
-     */
-    func withHeaders(headers: [String: String]) throws  -> FlamingoMatcher
-    
-    /**
-     * Returns a new instance with trusted measurements keyed by PCR index.
-     *
-     * PCR0, PCR1, and PCR2 must be supplied from an approved enclave build. Additional entries
-     * are also pinned. It's the user's responsibility to ensure the measurements are from a trusted enclave and match the verifier's expectations.
-     *
-     * # Errors
-     * Returns [`FlamingoError::Configuration`] if no measurement is set.
-     */
-    func withMeasurements(measurements: [UInt32: Data]) throws  -> FlamingoMatcher
-    
-}
-/**
- * A simple wrapper around of `FlamingoVerifierClient`. Flamingo Verifier is a cloud TEE service for attested embedding generation and comparison.
- */
-open class FlamingoMatcher: FlamingoMatcherProtocol, @unchecked Sendable {
-    fileprivate let handle: UInt64
-
-    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public struct NoHandle {
-        public init() {}
-    }
-
-    // TODO: We'd like this to be `private` but for Swifty reasons,
-    // we can't implement `FfiConverter` without making this `required` and we can't
-    // make it `required` without making it `public`.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    required public init(unsafeFromHandle handle: UInt64) {
-        self.handle = handle
-    }
-
-    // This constructor can be used to instantiate a fake object.
-    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
-    //
-    // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public init(noHandle: NoHandle) {
-        self.handle = 0
-    }
-
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public func uniffiCloneHandle() -> UInt64 {
-        return try! rustCall { uniffi_walletkit_core_fn_clone_flamingomatcher(self.handle, $0) }
-    }
-    /**
-     * Creates an instance with default values, use `with_measurements` and `with_headers` for customization.
-     *
-     * # Errors
-     *
-     * Returns [`FlamingoError::Configuration`] if the URL is not a valid HTTP(S) URL.
-     */
-public convenience init(hostUrl: String)throws  {
-    let handle =
-        try rustCallWithError(FfiConverterTypeFlamingoError_lift) {
-        uniffiCallStatus in
-    uniffi_walletkit_core_fn_constructor_flamingomatcher_new(
-        FfiConverterString.lower(hostUrl),uniffiCallStatus
-    )
-}
-    self.init(unsafeFromHandle: handle)
-}
-
-    deinit {
-        if handle == 0 {
-            // Mock objects have handle=0 don't try to free them
-            return
-        }
-
-        try! rustCall { uniffi_walletkit_core_fn_free_flamingomatcher(handle, $0) }
-    }
-
-    
-
-    
-    /**
-     * Performs an attested 3-way embedding match.
-     *
-     * - Fetches the enclave assignment and verifies its attestation against the trusted PCRs.
-     * - Encrypts and sends the match inputs using the enclave's attested public key.
-     * - Decrypts the result and, on success, verifies the token's signature and signing-key attestation.
-     *
-     * # Errors
-     *
-     * Returns [`FlamingoError::InvalidInput`] before making a network request when a caller value
-     * is unusable, or [`FlamingoError::Configuration`] if trusted measurements are missing.
-     * Other failures are returned as [`FlamingoError::Verifier`].
-     */
-open func performMatch(request: FlamingoMatchRequest)async throws  -> FlamingoMatchOutcome  {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_walletkit_core_fn_method_flamingomatcher_perform_match(
-                        self.uniffiCloneHandle(),FfiConverterTypeFlamingoMatchRequest_lower(request)
-                )
-            },
-            pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
-            completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
-            freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
-            liftFunc: FfiConverterTypeFlamingoMatchOutcome_lift,
-            errorHandler: FfiConverterTypeFlamingoError_lift
-        )
-}
-    
-    /**
-     * Returns a new instance with these default headers, replacing any previously configured set.
-     *
-     * Use this to set authorization, client name, or other headers. The `Cookie` header is not allowed; the client manages affinity cookies automatically.
-     *
-     * # Errors
-     * Returns [`FlamingoError::Configuration`] for invalid names/values, case-insensitive duplicate
-     * names, or a caller-supplied `Cookie` header (the client owns affinity cookies).
-     */
-open func withHeaders(headers: [String: String])throws  -> FlamingoMatcher  {
-    return try  FfiConverterTypeFlamingoMatcher_lift(try rustCallWithError(FfiConverterTypeFlamingoError_lift) {
-        uniffiCallStatus in
-    uniffi_walletkit_core_fn_method_flamingomatcher_with_headers(
-            self.uniffiCloneHandle(),
-        FfiConverterDictionaryStringString.lower(headers),uniffiCallStatus
-    )
-})
-}
-    
-    /**
-     * Returns a new instance with trusted measurements keyed by PCR index.
-     *
-     * PCR0, PCR1, and PCR2 must be supplied from an approved enclave build. Additional entries
-     * are also pinned. It's the user's responsibility to ensure the measurements are from a trusted enclave and match the verifier's expectations.
-     *
-     * # Errors
-     * Returns [`FlamingoError::Configuration`] if no measurement is set.
-     */
-open func withMeasurements(measurements: [UInt32: Data])throws  -> FlamingoMatcher  {
-    return try  FfiConverterTypeFlamingoMatcher_lift(try rustCallWithError(FfiConverterTypeFlamingoError_lift) {
-        uniffiCallStatus in
-    uniffi_walletkit_core_fn_method_flamingomatcher_with_measurements(
-            self.uniffiCloneHandle(),
-        FfiConverterDictionaryUInt32Data.lower(measurements),uniffiCallStatus
-    )
-})
-}
-    
-
-    
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeFlamingoMatcher: FfiConverter {
-    typealias FfiType = UInt64
-    typealias SwiftType = FlamingoMatcher
-
-    public static func lift(_ handle: UInt64) throws -> FlamingoMatcher {
-        return FlamingoMatcher(unsafeFromHandle: handle)
-    }
-
-    public static func lower(_ value: FlamingoMatcher) -> UInt64 {
-        return value.uniffiCloneHandle()
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FlamingoMatcher {
-        let handle: UInt64 = try readInt(&buf)
-        return try lift(handle)
-    }
-
-    public static func write(_ value: FlamingoMatcher, into buf: inout [UInt8]) {
-        writeInt(&buf, lower(value))
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFlamingoMatcher_lift(_ handle: UInt64) throws -> FlamingoMatcher {
-    return try FfiConverterTypeFlamingoMatcher.lift(handle)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFlamingoMatcher_lower(_ value: FlamingoMatcher) -> UInt64 {
-    return FfiConverterTypeFlamingoMatcher.lower(value)
-}
-
-
-
-
-
-
-/**
  * Represents an Authenticator in the process of being initialized.
  *
  * The account is not yet registered in the `WorldIDRegistry` contract.
@@ -7788,124 +7540,6 @@ public func FfiConverterTypeVaultChangedListener_lower(_ value: VaultChangedList
 
 
 /**
- * A match token whose signing-key attestation and signature were verified.
- *
- * Foreign callers receive an opaque handle. The token and signing-key attestation remain
- * together in Rust for proof generation and eventual relay of the attestation to the RP.
- */
-public protocol VerifiedMatchTokenProtocol: AnyObject, Sendable {
-    
-}
-/**
- * A match token whose signing-key attestation and signature were verified.
- *
- * Foreign callers receive an opaque handle. The token and signing-key attestation remain
- * together in Rust for proof generation and eventual relay of the attestation to the RP.
- */
-open class VerifiedMatchToken: VerifiedMatchTokenProtocol, @unchecked Sendable {
-    fileprivate let handle: UInt64
-
-    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public struct NoHandle {
-        public init() {}
-    }
-
-    // TODO: We'd like this to be `private` but for Swifty reasons,
-    // we can't implement `FfiConverter` without making this `required` and we can't
-    // make it `required` without making it `public`.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    required public init(unsafeFromHandle handle: UInt64) {
-        self.handle = handle
-    }
-
-    // This constructor can be used to instantiate a fake object.
-    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
-    //
-    // - Warning:
-    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public init(noHandle: NoHandle) {
-        self.handle = 0
-    }
-
-#if swift(>=5.8)
-    @_documentation(visibility: private)
-#endif
-    public func uniffiCloneHandle() -> UInt64 {
-        return try! rustCall { uniffi_walletkit_core_fn_clone_verifiedmatchtoken(self.handle, $0) }
-    }
-    // No primary constructor declared for this class.
-
-    deinit {
-        if handle == 0 {
-            // Mock objects have handle=0 don't try to free them
-            return
-        }
-
-        try! rustCall { uniffi_walletkit_core_fn_free_verifiedmatchtoken(handle, $0) }
-    }
-
-    
-
-    
-
-    
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeVerifiedMatchToken: FfiConverter {
-    typealias FfiType = UInt64
-    typealias SwiftType = VerifiedMatchToken
-
-    public static func lift(_ handle: UInt64) throws -> VerifiedMatchToken {
-        return VerifiedMatchToken(unsafeFromHandle: handle)
-    }
-
-    public static func lower(_ value: VerifiedMatchToken) -> UInt64 {
-        return value.uniffiCloneHandle()
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VerifiedMatchToken {
-        let handle: UInt64 = try readInt(&buf)
-        return try lift(handle)
-    }
-
-    public static func write(_ value: VerifiedMatchToken, into buf: inout [UInt8]) {
-        writeInt(&buf, lower(value))
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeVerifiedMatchToken_lift(_ handle: UInt64) throws -> VerifiedMatchToken {
-    return try FfiConverterTypeVerifiedMatchToken.lift(handle)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeVerifiedMatchToken_lower(_ value: VerifiedMatchToken) -> UInt64 {
-    return FfiConverterTypeVerifiedMatchToken.lower(value)
-}
-
-
-
-
-
-
-/**
  * A blanket implementation interface that allows the ZK Artifact source implementations to be
  * used by methods exposed to walletkit consumers.
  */
@@ -8799,118 +8433,6 @@ public func FfiConverterTypeCredentialRecord_lift(_ buf: RustBuffer) throws -> C
 #endif
 public func FfiConverterTypeCredentialRecord_lower(_ value: CredentialRecord) -> RustBuffer {
     return FfiConverterTypeCredentialRecord.lower(value)
-}
-
-
-/**
- * Inputs for one attested `Flamingo` 3-way match.
- *
- * `credential_image` and `hashes_json` must come from the same enrolled Orb PCP. In particular,
- * `hashes_json` must contain the exact archive bytes, not parsed and reserialized JSON.
- */
-public struct FlamingoMatchRequest: Equatable, Hashable {
-    /**
-     * Raw liveness image bytes captured for this request.
-     */
-    public var liveImage: Data
-    /**
-     * Raw `thumbnail.png` bytes decrypted from the enrolled Orb PCP.
-     */
-    public var credentialImage: Data
-    /**
-     * Exact raw `hashes.json` bytes extracted from the enrolled Orb PCP.
-     */
-    public var hashesJson: Data
-    /**
-     * Optional second liveness frame for the `LightGuard` flow.
-     */
-    public var lightGuardImage: Data?
-    /**
-     * Raw challenge image bytes downloaded from the relying party.
-     */
-    public var challengeImage: Data
-    /**
-     * Minimum similarity required by the RP. Must be finite and between zero and one.
-     */
-    public var matchThreshold: Float
-
-    // Default memberwise initializers are never public by default, so we
-    // declare one manually.
-    public init(
-        /**
-         * Raw liveness image bytes captured for this request.
-         */liveImage: Data, 
-        /**
-         * Raw `thumbnail.png` bytes decrypted from the enrolled Orb PCP.
-         */credentialImage: Data, 
-        /**
-         * Exact raw `hashes.json` bytes extracted from the enrolled Orb PCP.
-         */hashesJson: Data, 
-        /**
-         * Optional second liveness frame for the `LightGuard` flow.
-         */lightGuardImage: Data?, 
-        /**
-         * Raw challenge image bytes downloaded from the relying party.
-         */challengeImage: Data, 
-        /**
-         * Minimum similarity required by the RP. Must be finite and between zero and one.
-         */matchThreshold: Float) {
-        self.liveImage = liveImage
-        self.credentialImage = credentialImage
-        self.hashesJson = hashesJson
-        self.lightGuardImage = lightGuardImage
-        self.challengeImage = challengeImage
-        self.matchThreshold = matchThreshold
-    }
-
-    
-
-    
-}
-
-#if compiler(>=6)
-extension FlamingoMatchRequest: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeFlamingoMatchRequest: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FlamingoMatchRequest {
-        return
-            try FlamingoMatchRequest(
-                liveImage: FfiConverterData.read(from: &buf), 
-                credentialImage: FfiConverterData.read(from: &buf), 
-                hashesJson: FfiConverterData.read(from: &buf), 
-                lightGuardImage: FfiConverterOptionData.read(from: &buf), 
-                challengeImage: FfiConverterData.read(from: &buf), 
-                matchThreshold: FfiConverterFloat.read(from: &buf)
-        )
-    }
-
-    public static func write(_ value: FlamingoMatchRequest, into buf: inout [UInt8]) {
-        FfiConverterData.write(value.liveImage, into: &buf)
-        FfiConverterData.write(value.credentialImage, into: &buf)
-        FfiConverterData.write(value.hashesJson, into: &buf)
-        FfiConverterOptionData.write(value.lightGuardImage, into: &buf)
-        FfiConverterData.write(value.challengeImage, into: &buf)
-        FfiConverterFloat.write(value.matchThreshold, into: &buf)
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFlamingoMatchRequest_lift(_ buf: RustBuffer) throws -> FlamingoMatchRequest {
-    return try FfiConverterTypeFlamingoMatchRequest.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFlamingoMatchRequest_lower(_ value: FlamingoMatchRequest) -> RustBuffer {
-    return FfiConverterTypeFlamingoMatchRequest.lower(value)
 }
 
 
@@ -9980,309 +9502,6 @@ public func FfiConverterTypeEnvironment_lower(_ value: Environment) -> RustBuffe
 
 
 /**
- * Failures while configuring or performing a match request.
- */
-public 
-enum FlamingoError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
-
-    
-    
-    /**
-     * A caller-supplied value cannot form a valid match request.
-     */
-    case InvalidInput(
-        /**
-         * Name of the invalid field.
-         */attribute: String, 
-        /**
-         * Why the value was rejected.
-         */reason: String
-    )
-    /**
-     * The verifier configuration was not valid.
-     */
-    case Configuration(String
-    )
-    /**
-     * Assignment, attestation, transport, channel opening, or token verification failed.
-     */
-    case Verifier(String
-    )
-
-    
-
-    
-
-    
-    public var errorDescription: String? {
-        String(reflecting: self)
-    }
-    
-}
-
-#if compiler(>=6)
-extension FlamingoError: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeFlamingoError: FfiConverterRustBuffer {
-    typealias SwiftType = FlamingoError
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FlamingoError {
-        let variant: Int32 = try readInt(&buf)
-        switch variant {
-
-        
-
-        
-        case 1: return .InvalidInput(
-            attribute: try FfiConverterString.read(from: &buf), 
-            reason: try FfiConverterString.read(from: &buf)
-            )
-        case 2: return .Configuration(
-            try FfiConverterString.read(from: &buf)
-            )
-        case 3: return .Verifier(
-            try FfiConverterString.read(from: &buf)
-            )
-
-         default: throw UniffiInternalError.unexpectedEnumCase
-        }
-    }
-
-    public static func write(_ value: FlamingoError, into buf: inout [UInt8]) {
-        switch value {
-
-        
-
-        
-        
-        case let .InvalidInput(attribute,reason):
-            writeInt(&buf, Int32(1))
-            FfiConverterString.write(attribute, into: &buf)
-            FfiConverterString.write(reason, into: &buf)
-            
-        
-        case let .Configuration(v1):
-            writeInt(&buf, Int32(2))
-            FfiConverterString.write(v1, into: &buf)
-            
-        
-        case let .Verifier(v1):
-            writeInt(&buf, Int32(3))
-            FfiConverterString.write(v1, into: &buf)
-            
-        }
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFlamingoError_lift(_ buf: RustBuffer) throws -> FlamingoError {
-    return try FfiConverterTypeFlamingoError.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFlamingoError_lower(_ value: FlamingoError) -> RustBuffer {
-    return FfiConverterTypeFlamingoError.lower(value)
-}
-
-
-/**
- * The outcome of the TEE match phase.
- */
-
-public enum FlamingoMatchOutcome {
-    
-    /**
-     * The enclave issued a token and `WalletKit` verified it against an attested signing key.
-     */
-    case matched(VerifiedMatchToken
-    )
-    /**
-     * The response reported a rejection. An unsigned rejection does not authenticate its sender.
-     */
-    case rejected(FlamingoMatchRejection
-    )
-
-
-
-
-
-}
-
-#if compiler(>=6)
-extension FlamingoMatchOutcome: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeFlamingoMatchOutcome: FfiConverterRustBuffer {
-    typealias SwiftType = FlamingoMatchOutcome
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FlamingoMatchOutcome {
-        let variant: Int32 = try readInt(&buf)
-        switch variant {
-        
-        case 1: return .matched(try FfiConverterTypeVerifiedMatchToken.read(from: &buf)
-        )
-        
-        case 2: return .rejected(try FfiConverterTypeFlamingoMatchRejection.read(from: &buf)
-        )
-        
-        default: throw UniffiInternalError.unexpectedEnumCase
-        }
-    }
-
-    public static func write(_ value: FlamingoMatchOutcome, into buf: inout [UInt8]) {
-        switch value {
-        
-        
-        case let .matched(v1):
-            writeInt(&buf, Int32(1))
-            FfiConverterTypeVerifiedMatchToken.write(v1, into: &buf)
-            
-        
-        case let .rejected(v1):
-            writeInt(&buf, Int32(2))
-            FfiConverterTypeFlamingoMatchRejection.write(v1, into: &buf)
-            
-        }
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFlamingoMatchOutcome_lift(_ buf: RustBuffer) throws -> FlamingoMatchOutcome {
-    return try FfiConverterTypeFlamingoMatchOutcome.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFlamingoMatchOutcome_lower(_ value: FlamingoMatchOutcome) -> RustBuffer {
-    return FfiConverterTypeFlamingoMatchOutcome.lower(value)
-}
-
-
-
-/**
- * A rejection reason reported in an encrypted match response.
- *
- * The reason is unsigned; it is not proof that the attested enclave issued it.
- */
-
-public enum FlamingoMatchRejection: Equatable, Hashable {
-    
-    /**
-     * The sealed inputs were malformed.
-     */
-    case malformedInputs
-    /**
-     * The PCP hashes file was invalid or did not contain the thumbnail commitment.
-     */
-    case invalidHashesJson
-    /**
-     * The credential image did not match the PCP thumbnail commitment.
-     */
-    case thumbnailHashMismatch
-    /**
-     * At least one comparison scored below the requested threshold.
-     */
-    case matchBelowThreshold
-    /**
-     * The enclave could not obtain a usable comparison score from the images.
-     */
-    case imageAnalysisFailed
-
-
-
-
-
-}
-
-#if compiler(>=6)
-extension FlamingoMatchRejection: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeFlamingoMatchRejection: FfiConverterRustBuffer {
-    typealias SwiftType = FlamingoMatchRejection
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FlamingoMatchRejection {
-        let variant: Int32 = try readInt(&buf)
-        switch variant {
-        
-        case 1: return .malformedInputs
-        
-        case 2: return .invalidHashesJson
-        
-        case 3: return .thumbnailHashMismatch
-        
-        case 4: return .matchBelowThreshold
-        
-        case 5: return .imageAnalysisFailed
-        
-        default: throw UniffiInternalError.unexpectedEnumCase
-        }
-    }
-
-    public static func write(_ value: FlamingoMatchRejection, into buf: inout [UInt8]) {
-        switch value {
-        
-        
-        case .malformedInputs:
-            writeInt(&buf, Int32(1))
-        
-        
-        case .invalidHashesJson:
-            writeInt(&buf, Int32(2))
-        
-        
-        case .thumbnailHashMismatch:
-            writeInt(&buf, Int32(3))
-        
-        
-        case .matchBelowThreshold:
-            writeInt(&buf, Int32(4))
-        
-        
-        case .imageAnalysisFailed:
-            writeInt(&buf, Int32(5))
-        
-        }
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFlamingoMatchRejection_lift(_ buf: RustBuffer) throws -> FlamingoMatchRejection {
-    return try FfiConverterTypeFlamingoMatchRejection.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFlamingoMatchRejection_lower(_ value: FlamingoMatchRejection) -> RustBuffer {
-    return FfiConverterTypeFlamingoMatchRejection.lower(value)
-}
-
-
-
-/**
  * Status of an account operation submitted through the gateway.
  */
 
@@ -10903,11 +10122,6 @@ enum StorageError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
     case InvalidEnvelope(String
     )
     /**
-     * Invalid input supplied to a storage operation.
-     */
-    case InvalidInput(String
-    )
-    /**
      * Unsupported envelope version.
      */
     case UnsupportedEnvelopeVersion(UInt32
@@ -10921,11 +10135,6 @@ enum StorageError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
      * Errors coming from the cache database.
      */
     case CacheDb(String
-    )
-    /**
-     * Errors initializing or administering persistent browser storage.
-     */
-    case PersistentStorage(String
     )
     /**
      * Leaf index mismatch during initialization.
@@ -11033,44 +10242,38 @@ public struct FfiConverterTypeStorageError: FfiConverterRustBuffer {
         case 6: return .InvalidEnvelope(
             try FfiConverterString.read(from: &buf)
             )
-        case 7: return .InvalidInput(
-            try FfiConverterString.read(from: &buf)
-            )
-        case 8: return .UnsupportedEnvelopeVersion(
+        case 7: return .UnsupportedEnvelopeVersion(
             try FfiConverterUInt32.read(from: &buf)
             )
-        case 9: return .VaultDb(
+        case 8: return .VaultDb(
             try FfiConverterString.read(from: &buf)
             )
-        case 10: return .CacheDb(
+        case 9: return .CacheDb(
             try FfiConverterString.read(from: &buf)
             )
-        case 11: return .PersistentStorage(
-            try FfiConverterString.read(from: &buf)
-            )
-        case 12: return .InvalidLeafIndex(
+        case 10: return .InvalidLeafIndex(
             expected: try FfiConverterUInt64.read(from: &buf), 
             provided: try FfiConverterUInt64.read(from: &buf)
             )
-        case 13: return .CorruptedVault(
+        case 11: return .CorruptedVault(
             try FfiConverterString.read(from: &buf)
             )
-        case 14: return .NotInitialized
-        case 15: return .NullifierAlreadyDisclosed
-        case 16: return .CredentialNotFound
-        case 17: return .CredentialIdNotFound(
+        case 12: return .NotInitialized
+        case 13: return .NullifierAlreadyDisclosed
+        case 14: return .CredentialNotFound
+        case 15: return .CredentialIdNotFound(
             credentialId: try FfiConverterUInt64.read(from: &buf)
             )
-        case 18: return .CorruptedCacheEntry(
+        case 16: return .CorruptedCacheEntry(
             keyPrefix: try FfiConverterUInt8.read(from: &buf)
             )
-        case 19: return .ActivityDb(
+        case 17: return .ActivityDb(
             try FfiConverterString.read(from: &buf)
             )
-        case 20: return .ActivityInvalidRecord(
+        case 18: return .ActivityInvalidRecord(
             try FfiConverterString.read(from: &buf)
             )
-        case 21: return .UnexpectedUniFfiCallbackError(
+        case 19: return .UnexpectedUniFfiCallbackError(
             try FfiConverterString.read(from: &buf)
             )
 
@@ -11115,76 +10318,66 @@ public struct FfiConverterTypeStorageError: FfiConverterRustBuffer {
             FfiConverterString.write(v1, into: &buf)
             
         
-        case let .InvalidInput(v1):
-            writeInt(&buf, Int32(7))
-            FfiConverterString.write(v1, into: &buf)
-            
-        
         case let .UnsupportedEnvelopeVersion(v1):
-            writeInt(&buf, Int32(8))
+            writeInt(&buf, Int32(7))
             FfiConverterUInt32.write(v1, into: &buf)
             
         
         case let .VaultDb(v1):
-            writeInt(&buf, Int32(9))
+            writeInt(&buf, Int32(8))
             FfiConverterString.write(v1, into: &buf)
             
         
         case let .CacheDb(v1):
-            writeInt(&buf, Int32(10))
-            FfiConverterString.write(v1, into: &buf)
-            
-        
-        case let .PersistentStorage(v1):
-            writeInt(&buf, Int32(11))
+            writeInt(&buf, Int32(9))
             FfiConverterString.write(v1, into: &buf)
             
         
         case let .InvalidLeafIndex(expected,provided):
-            writeInt(&buf, Int32(12))
+            writeInt(&buf, Int32(10))
             FfiConverterUInt64.write(expected, into: &buf)
             FfiConverterUInt64.write(provided, into: &buf)
             
         
         case let .CorruptedVault(v1):
-            writeInt(&buf, Int32(13))
+            writeInt(&buf, Int32(11))
             FfiConverterString.write(v1, into: &buf)
             
         
         case .NotInitialized:
-            writeInt(&buf, Int32(14))
+            writeInt(&buf, Int32(12))
         
         
         case .NullifierAlreadyDisclosed:
-            writeInt(&buf, Int32(15))
+            writeInt(&buf, Int32(13))
         
         
         case .CredentialNotFound:
-            writeInt(&buf, Int32(16))
+            writeInt(&buf, Int32(14))
         
         
         case let .CredentialIdNotFound(credentialId):
-            writeInt(&buf, Int32(17))
+            writeInt(&buf, Int32(15))
             FfiConverterUInt64.write(credentialId, into: &buf)
             
         
         case let .CorruptedCacheEntry(keyPrefix):
-            writeInt(&buf, Int32(18))
+            writeInt(&buf, Int32(16))
             FfiConverterUInt8.write(keyPrefix, into: &buf)
             
         
         case let .ActivityDb(v1):
-            writeInt(&buf, Int32(19))
+            writeInt(&buf, Int32(17))
             FfiConverterString.write(v1, into: &buf)
             
         
         case let .ActivityInvalidRecord(v1):
-            writeInt(&buf, Int32(20))
+            writeInt(&buf, Int32(18))
             FfiConverterString.write(v1, into: &buf)
             
         
         case let .UnexpectedUniFfiCallbackError(v1):
-            writeInt(&buf, Int32(21))
+            writeInt(&buf, Int32(19))
             FfiConverterString.write(v1, into: &buf)
             
         }
@@ -12068,32 +11261,6 @@ fileprivate struct FfiConverterSequenceOptionString: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterDictionaryUInt32Data: FfiConverterRustBuffer {
-    public static func write(_ value: [UInt32: Data], into buf: inout [UInt8]) {
-        let len = Int32(value.count)
-        writeInt(&buf, len)
-        for (key, value) in value {
-            FfiConverterUInt32.write(key, into: &buf)
-            FfiConverterData.write(value, into: &buf)
-        }
-    }
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [UInt32: Data] {
-        let len: Int32 = try readInt(&buf)
-        var dict = [UInt32: Data]()
-        dict.reserveCapacity(Int(len))
-        for _ in 0..<len {
-            let key = try FfiConverterUInt32.read(from: &buf)
-            let value = try FfiConverterData.read(from: &buf)
-            dict[key] = value
-        }
-        return dict
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
 fileprivate struct FfiConverterDictionaryStringString: FfiConverterRustBuffer {
     public static func write(_ value: [String: String], into buf: inout [UInt8]) {
         let len = Int32(value.count)
@@ -12438,15 +11605,6 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_fieldelement_to_hex_string() != 21343) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_flamingomatcher_perform_match() != 26428) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_walletkit_core_checksum_method_flamingomatcher_with_headers() != 29784) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_walletkit_core_checksum_method_flamingomatcher_with_measurements() != 8319) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_bind_recovery_agent() != 11385) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -12691,9 +11849,6 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_fieldelement_try_from_hex_string() != 24521) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_walletkit_core_checksum_constructor_flamingomatcher_new() != 22702) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_recoverybindingmanager_new() != 37272) {

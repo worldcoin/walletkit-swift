@@ -11432,6 +11432,18 @@ enum WalletKitError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError
     case InvalidActionSession
 
     
+    /**
+     * Returns the error message with potential secrets redacted.
+     */
+public func sanitizedMessage() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_walletkiterror_sanitized_message(
+            FfiConverterTypeWalletKitError_lower(self),uniffiCallStatus
+    )
+})
+}
+    
 
     
 
@@ -12303,6 +12315,21 @@ public func initLogging(logger: Logger, level: LogLevel?)  {try! rustCall() {
 }
 }
 /**
+ * Replaces hex sequences of `HEX_SECRET_MIN_LEN` or more digits with a
+ * redacted form showing only the first and last two hex characters.
+ * An optional `0x` prefix is preserved in the output.
+ *
+ * Returns `input` unmodified (zero-allocation) when no redaction is needed.
+ */
+public func sanitizeHexSecrets(input: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_func_sanitize_hex_secrets(
+        FfiConverterString.lower(input),uniffiCallStatus
+    )
+})
+}
+/**
  * Checks whether `store` holds the credentials required to fulfill `request`.
  *
  * See the [module-level documentation](self) for a full description of the
@@ -12350,6 +12377,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_func_init_logging() != 31382) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_func_sanitize_hex_secrets() != 11939) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_func_check_credentials_against_proof_request() != 65024) {

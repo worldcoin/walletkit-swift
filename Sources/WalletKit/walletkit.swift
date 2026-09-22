@@ -552,6 +552,22 @@ fileprivate struct FfiConverterFloat: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterDouble: FfiConverterPrimitive {
+    typealias FfiType = Double
+    typealias SwiftType = Double
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Double {
+        return try lift(readDouble(&buf))
+    }
+
+    public static func write(_ value: Double, into buf: inout [UInt8]) {
+        writeDouble(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterBool : FfiConverter {
     typealias FfiType = Int8
     typealias SwiftType = Bool
@@ -7795,6 +7811,13 @@ public func FfiConverterTypeVaultChangedListener_lower(_ value: VaultChangedList
  */
 public protocol VerifiedMatchTokenProtocol: AnyObject, Sendable {
     
+    /**
+     * Credential-versus-live normalized similarity authenticated by the token.
+     *
+     * The other two comparison scores and the requested threshold are not in the token.
+     */
+    func matchCoefficient()  -> Float
+    
 }
 /**
  * A match token whose signing-key attestation and signature were verified.
@@ -7854,6 +7877,20 @@ open class VerifiedMatchToken: VerifiedMatchTokenProtocol, @unchecked Sendable {
 
     
 
+    
+    /**
+     * Credential-versus-live normalized similarity authenticated by the token.
+     *
+     * The other two comparison scores and the requested threshold are not in the token.
+     */
+open func matchCoefficient() -> Float  {
+    return try!  FfiConverterFloat.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_verifiedmatchtoken_match_coefficient(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
     
 
     
@@ -8809,118 +8846,6 @@ public func FfiConverterTypeCredentialRecord_lift(_ buf: RustBuffer) throws -> C
 #endif
 public func FfiConverterTypeCredentialRecord_lower(_ value: CredentialRecord) -> RustBuffer {
     return FfiConverterTypeCredentialRecord.lower(value)
-}
-
-
-/**
- * Inputs for one attested `Flamingo` 3-way match.
- *
- * `credential_image` and `hashes_json` must come from the same enrolled Orb PCP. In particular,
- * `hashes_json` must contain the exact archive bytes, not parsed and reserialized JSON.
- */
-public struct FlamingoMatchRequest: Equatable, Hashable {
-    /**
-     * Raw liveness image bytes captured for this request.
-     */
-    public var liveImage: Data
-    /**
-     * Raw `thumbnail.png` bytes decrypted from the enrolled Orb PCP.
-     */
-    public var credentialImage: Data
-    /**
-     * Exact raw `hashes.json` bytes extracted from the enrolled Orb PCP.
-     */
-    public var hashesJson: Data
-    /**
-     * Optional second liveness frame for the `LightGuard` flow.
-     */
-    public var lightGuardImage: Data?
-    /**
-     * Raw challenge image bytes downloaded from the relying party.
-     */
-    public var challengeImage: Data
-    /**
-     * Minimum similarity required by the RP. Must be finite and between zero and one.
-     */
-    public var matchThreshold: Float
-
-    // Default memberwise initializers are never public by default, so we
-    // declare one manually.
-    public init(
-        /**
-         * Raw liveness image bytes captured for this request.
-         */liveImage: Data, 
-        /**
-         * Raw `thumbnail.png` bytes decrypted from the enrolled Orb PCP.
-         */credentialImage: Data, 
-        /**
-         * Exact raw `hashes.json` bytes extracted from the enrolled Orb PCP.
-         */hashesJson: Data, 
-        /**
-         * Optional second liveness frame for the `LightGuard` flow.
-         */lightGuardImage: Data?, 
-        /**
-         * Raw challenge image bytes downloaded from the relying party.
-         */challengeImage: Data, 
-        /**
-         * Minimum similarity required by the RP. Must be finite and between zero and one.
-         */matchThreshold: Float) {
-        self.liveImage = liveImage
-        self.credentialImage = credentialImage
-        self.hashesJson = hashesJson
-        self.lightGuardImage = lightGuardImage
-        self.challengeImage = challengeImage
-        self.matchThreshold = matchThreshold
-    }
-
-    
-
-    
-}
-
-#if compiler(>=6)
-extension FlamingoMatchRequest: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeFlamingoMatchRequest: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FlamingoMatchRequest {
-        return
-            try FlamingoMatchRequest(
-                liveImage: FfiConverterData.read(from: &buf), 
-                credentialImage: FfiConverterData.read(from: &buf), 
-                hashesJson: FfiConverterData.read(from: &buf), 
-                lightGuardImage: FfiConverterOptionData.read(from: &buf), 
-                challengeImage: FfiConverterData.read(from: &buf), 
-                matchThreshold: FfiConverterFloat.read(from: &buf)
-        )
-    }
-
-    public static func write(_ value: FlamingoMatchRequest, into buf: inout [UInt8]) {
-        FfiConverterData.write(value.liveImage, into: &buf)
-        FfiConverterData.write(value.credentialImage, into: &buf)
-        FfiConverterData.write(value.hashesJson, into: &buf)
-        FfiConverterOptionData.write(value.lightGuardImage, into: &buf)
-        FfiConverterData.write(value.challengeImage, into: &buf)
-        FfiConverterFloat.write(value.matchThreshold, into: &buf)
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFlamingoMatchRequest_lift(_ buf: RustBuffer) throws -> FlamingoMatchRequest {
-    return try FfiConverterTypeFlamingoMatchRequest.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFlamingoMatchRequest_lower(_ value: FlamingoMatchRequest) -> RustBuffer {
-    return FfiConverterTypeFlamingoMatchRequest.lower(value)
 }
 
 
@@ -9990,6 +9915,91 @@ public func FfiConverterTypeEnvironment_lower(_ value: Environment) -> RustBuffe
 
 
 /**
+ * Comparison names match the worker protocol.
+ */
+
+public enum FlamingoComparison: Equatable, Hashable {
+    
+    /**
+     * Orb credential versus live selfie.
+     */
+    case orbSelfie
+    /**
+     * Orb credential versus RTMS challenge.
+     */
+    case orbChallenge
+    /**
+     * Live selfie versus RTMS challenge.
+     */
+    case selfieChallenge
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FlamingoComparison: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFlamingoComparison: FfiConverterRustBuffer {
+    typealias SwiftType = FlamingoComparison
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FlamingoComparison {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .orbSelfie
+        
+        case 2: return .orbChallenge
+        
+        case 3: return .selfieChallenge
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FlamingoComparison, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .orbSelfie:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .orbChallenge:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .selfieChallenge:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoComparison_lift(_ buf: RustBuffer) throws -> FlamingoComparison {
+    return try FfiConverterTypeFlamingoComparison.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoComparison_lower(_ value: FlamingoComparison) -> RustBuffer {
+    return FfiConverterTypeFlamingoComparison.lower(value)
+}
+
+
+
+/**
  * Failures while configuring or performing a match request.
  */
 public 
@@ -10105,6 +10115,671 @@ public func FfiConverterTypeFlamingoError_lower(_ value: FlamingoError) -> RustB
 
 
 /**
+ * Image rejection reasons, without raw engine diagnostics.
+ */
+
+public enum FlamingoImageFailureReason: Equatable, Hashable {
+    
+    /**
+     * Image decoding or dimension validation failed.
+     */
+    case invalidImage
+    /**
+     * Embedding generation failed.
+     */
+    case templateFailed
+    /**
+     * Too many faces.
+     */
+    case tooManyFaces
+    /**
+     * Image too dark.
+     */
+    case imageTooDark
+    /**
+     * Image too bright.
+     */
+    case imageTooBright
+    /**
+     * Illumination variance.
+     */
+    case illuminationVariance
+    /**
+     * Face too small.
+     */
+    case faceTooSmall
+    /**
+     * Face too big.
+     */
+    case faceTooBig
+    /**
+     * Face resolution too low.
+     */
+    case faceResolutionTooLow
+    /**
+     * Face too high.
+     */
+    case faceTooHigh
+    /**
+     * Face too low.
+     */
+    case faceTooLow
+    /**
+     * Face too far left.
+     */
+    case faceTooFarLeft
+    /**
+     * Face too far right.
+     */
+    case faceTooFarRight
+    /**
+     * Head pose yaw.
+     */
+    case headPoseYaw
+    /**
+     * Head pose pitch too high.
+     */
+    case headPosePitchTooHigh
+    /**
+     * Head pose pitch too low.
+     */
+    case headPosePitchTooLow
+    /**
+     * Head pose roll.
+     */
+    case headPoseRoll
+    /**
+     * Low quality.
+     */
+    case lowQuality
+    /**
+     * Sunglasses occlusion detected.
+     */
+    case sunglassesOcclusionDetected
+    /**
+     * Glasses occlusion detected.
+     */
+    case glassesOcclusionDetected
+    /**
+     * Mask occlusion detected.
+     */
+    case maskOcclusionDetected
+    /**
+     * Other occlusion detected.
+     */
+    case otherOcclusionDetected
+    /**
+     * Hair occlusion detected.
+     */
+    case hairOcclusionDetected
+    /**
+     * Fas occlusion detected.
+     */
+    case fasOcclusionDetected
+    /**
+     * Spoof detected.
+     */
+    case spoofDetected
+    /**
+     * Depth spoof detected.
+     */
+    case depthSpoofDetected
+    /**
+     * Thermal spoof detected.
+     */
+    case thermalSpoofDetected
+    /**
+     * Age below threshold.
+     */
+    case ageBelowThreshold
+    /**
+     * No face detected.
+     */
+    case noFaceDetected
+    /**
+     * Eyes closed.
+     */
+    case eyesClosed
+    /**
+     * Non neutral expression.
+     */
+    case nonNeutralExpression
+    /**
+     * Landmarks alignment.
+     */
+    case landmarksAlignment
+    /**
+     * Face overexposed.
+     */
+    case faceOverexposed
+    /**
+     * Face underexposed.
+     */
+    case faceUnderexposed
+    /**
+     * Segmentation occlusion proportion.
+     */
+    case segmentationOcclusionProportion
+    /**
+     * Bright artifacts.
+     */
+    case brightArtifacts
+    /**
+     * Light guard score too low.
+     */
+    case lightGuardScoreTooLow
+    /**
+     * Low contrast.
+     */
+    case lowContrast
+    /**
+     * Mesh expression score.
+     */
+    case meshExpressionScore
+    /**
+     * High color distortion.
+     */
+    case highColorDistortion
+    /**
+     * Uneven lighting.
+     */
+    case unevenLighting
+    /**
+     * Blurry face.
+     */
+    case blurryFace
+    /**
+     * Noisy thermal image.
+     */
+    case noisyThermalImage
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FlamingoImageFailureReason: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFlamingoImageFailureReason: FfiConverterRustBuffer {
+    typealias SwiftType = FlamingoImageFailureReason
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FlamingoImageFailureReason {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .invalidImage
+        
+        case 2: return .templateFailed
+        
+        case 3: return .tooManyFaces
+        
+        case 4: return .imageTooDark
+        
+        case 5: return .imageTooBright
+        
+        case 6: return .illuminationVariance
+        
+        case 7: return .faceTooSmall
+        
+        case 8: return .faceTooBig
+        
+        case 9: return .faceResolutionTooLow
+        
+        case 10: return .faceTooHigh
+        
+        case 11: return .faceTooLow
+        
+        case 12: return .faceTooFarLeft
+        
+        case 13: return .faceTooFarRight
+        
+        case 14: return .headPoseYaw
+        
+        case 15: return .headPosePitchTooHigh
+        
+        case 16: return .headPosePitchTooLow
+        
+        case 17: return .headPoseRoll
+        
+        case 18: return .lowQuality
+        
+        case 19: return .sunglassesOcclusionDetected
+        
+        case 20: return .glassesOcclusionDetected
+        
+        case 21: return .maskOcclusionDetected
+        
+        case 22: return .otherOcclusionDetected
+        
+        case 23: return .hairOcclusionDetected
+        
+        case 24: return .fasOcclusionDetected
+        
+        case 25: return .spoofDetected
+        
+        case 26: return .depthSpoofDetected
+        
+        case 27: return .thermalSpoofDetected
+        
+        case 28: return .ageBelowThreshold
+        
+        case 29: return .noFaceDetected
+        
+        case 30: return .eyesClosed
+        
+        case 31: return .nonNeutralExpression
+        
+        case 32: return .landmarksAlignment
+        
+        case 33: return .faceOverexposed
+        
+        case 34: return .faceUnderexposed
+        
+        case 35: return .segmentationOcclusionProportion
+        
+        case 36: return .brightArtifacts
+        
+        case 37: return .lightGuardScoreTooLow
+        
+        case 38: return .lowContrast
+        
+        case 39: return .meshExpressionScore
+        
+        case 40: return .highColorDistortion
+        
+        case 41: return .unevenLighting
+        
+        case 42: return .blurryFace
+        
+        case 43: return .noisyThermalImage
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FlamingoImageFailureReason, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .invalidImage:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .templateFailed:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .tooManyFaces:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .imageTooDark:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .imageTooBright:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .illuminationVariance:
+            writeInt(&buf, Int32(6))
+        
+        
+        case .faceTooSmall:
+            writeInt(&buf, Int32(7))
+        
+        
+        case .faceTooBig:
+            writeInt(&buf, Int32(8))
+        
+        
+        case .faceResolutionTooLow:
+            writeInt(&buf, Int32(9))
+        
+        
+        case .faceTooHigh:
+            writeInt(&buf, Int32(10))
+        
+        
+        case .faceTooLow:
+            writeInt(&buf, Int32(11))
+        
+        
+        case .faceTooFarLeft:
+            writeInt(&buf, Int32(12))
+        
+        
+        case .faceTooFarRight:
+            writeInt(&buf, Int32(13))
+        
+        
+        case .headPoseYaw:
+            writeInt(&buf, Int32(14))
+        
+        
+        case .headPosePitchTooHigh:
+            writeInt(&buf, Int32(15))
+        
+        
+        case .headPosePitchTooLow:
+            writeInt(&buf, Int32(16))
+        
+        
+        case .headPoseRoll:
+            writeInt(&buf, Int32(17))
+        
+        
+        case .lowQuality:
+            writeInt(&buf, Int32(18))
+        
+        
+        case .sunglassesOcclusionDetected:
+            writeInt(&buf, Int32(19))
+        
+        
+        case .glassesOcclusionDetected:
+            writeInt(&buf, Int32(20))
+        
+        
+        case .maskOcclusionDetected:
+            writeInt(&buf, Int32(21))
+        
+        
+        case .otherOcclusionDetected:
+            writeInt(&buf, Int32(22))
+        
+        
+        case .hairOcclusionDetected:
+            writeInt(&buf, Int32(23))
+        
+        
+        case .fasOcclusionDetected:
+            writeInt(&buf, Int32(24))
+        
+        
+        case .spoofDetected:
+            writeInt(&buf, Int32(25))
+        
+        
+        case .depthSpoofDetected:
+            writeInt(&buf, Int32(26))
+        
+        
+        case .thermalSpoofDetected:
+            writeInt(&buf, Int32(27))
+        
+        
+        case .ageBelowThreshold:
+            writeInt(&buf, Int32(28))
+        
+        
+        case .noFaceDetected:
+            writeInt(&buf, Int32(29))
+        
+        
+        case .eyesClosed:
+            writeInt(&buf, Int32(30))
+        
+        
+        case .nonNeutralExpression:
+            writeInt(&buf, Int32(31))
+        
+        
+        case .landmarksAlignment:
+            writeInt(&buf, Int32(32))
+        
+        
+        case .faceOverexposed:
+            writeInt(&buf, Int32(33))
+        
+        
+        case .faceUnderexposed:
+            writeInt(&buf, Int32(34))
+        
+        
+        case .segmentationOcclusionProportion:
+            writeInt(&buf, Int32(35))
+        
+        
+        case .brightArtifacts:
+            writeInt(&buf, Int32(36))
+        
+        
+        case .lightGuardScoreTooLow:
+            writeInt(&buf, Int32(37))
+        
+        
+        case .lowContrast:
+            writeInt(&buf, Int32(38))
+        
+        
+        case .meshExpressionScore:
+            writeInt(&buf, Int32(39))
+        
+        
+        case .highColorDistortion:
+            writeInt(&buf, Int32(40))
+        
+        
+        case .unevenLighting:
+            writeInt(&buf, Int32(41))
+        
+        
+        case .blurryFace:
+            writeInt(&buf, Int32(42))
+        
+        
+        case .noisyThermalImage:
+            writeInt(&buf, Int32(43))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoImageFailureReason_lift(_ buf: RustBuffer) throws -> FlamingoImageFailureReason {
+    return try FfiConverterTypeFlamingoImageFailureReason.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoImageFailureReason_lower(_ value: FlamingoImageFailureReason) -> RustBuffer {
+    return FfiConverterTypeFlamingoImageFailureReason.lower(value)
+}
+
+
+
+/**
+ * Image roles match the worker protocol.
+ */
+
+public enum FlamingoImageRole: Equatable, Hashable {
+    
+    /**
+     * Orb credential image.
+     */
+    case orbCredential
+    /**
+     * Live capture.
+     */
+    case liveSelfie
+    /**
+     * RTMS challenge image.
+     */
+    case rtmsChallenge
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FlamingoImageRole: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFlamingoImageRole: FfiConverterRustBuffer {
+    typealias SwiftType = FlamingoImageRole
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FlamingoImageRole {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .orbCredential
+        
+        case 2: return .liveSelfie
+        
+        case 3: return .rtmsChallenge
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FlamingoImageRole, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .orbCredential:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .liveSelfie:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .rtmsChallenge:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoImageRole_lift(_ buf: RustBuffer) throws -> FlamingoImageRole {
+    return try FfiConverterTypeFlamingoImageRole.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoImageRole_lower(_ value: FlamingoImageRole) -> RustBuffer {
+    return FfiConverterTypeFlamingoImageRole.lower(value)
+}
+
+
+
+/**
+ * A single image or an explicitly selected `LightGuard` pair.
+ */
+
+public enum FlamingoLiveCapture: Equatable, Hashable {
+    
+    /**
+     * Vanilla selfie bytes.
+     */
+    case vanilla(
+        /**
+         * Encoded vanilla selfie bytes.
+         */image: Data
+    )
+    /**
+     * Illuminated and unilluminated frames with an explicit matching-frame selection.
+     */
+    case lightGuard(
+        /**
+         * Illuminated frame bytes.
+         */illuminated: Data, 
+        /**
+         * Unilluminated frame bytes.
+         */unilluminated: Data, 
+        /**
+         * Frame used for matching.
+         */matchingFrame: FlamingoMatchingFrame
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FlamingoLiveCapture: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFlamingoLiveCapture: FfiConverterRustBuffer {
+    typealias SwiftType = FlamingoLiveCapture
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FlamingoLiveCapture {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .vanilla(image: try FfiConverterData.read(from: &buf)
+        )
+        
+        case 2: return .lightGuard(illuminated: try FfiConverterData.read(from: &buf), unilluminated: try FfiConverterData.read(from: &buf), matchingFrame: try FfiConverterTypeFlamingoMatchingFrame.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FlamingoLiveCapture, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .vanilla(image):
+            writeInt(&buf, Int32(1))
+            FfiConverterData.write(image, into: &buf)
+            
+        
+        case let .lightGuard(illuminated,unilluminated,matchingFrame):
+            writeInt(&buf, Int32(2))
+            FfiConverterData.write(illuminated, into: &buf)
+            FfiConverterData.write(unilluminated, into: &buf)
+            FfiConverterTypeFlamingoMatchingFrame.write(matchingFrame, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoLiveCapture_lift(_ buf: RustBuffer) throws -> FlamingoLiveCapture {
+    return try FfiConverterTypeFlamingoLiveCapture.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoLiveCapture_lower(_ value: FlamingoLiveCapture) -> RustBuffer {
+    return FfiConverterTypeFlamingoLiveCapture.lower(value)
+}
+
+
+
+/**
  * The outcome of the TEE match phase.
  */
 
@@ -10186,33 +10861,74 @@ public func FfiConverterTypeFlamingoMatchOutcome_lower(_ value: FlamingoMatchOut
 
 
 /**
- * A rejection reason reported in an encrypted match response.
- *
- * The reason is unsigned; it is not proof that the attested enclave issued it.
+ * A rejection reported inside encryption; not a signed statement.
  */
 
 public enum FlamingoMatchRejection: Equatable, Hashable {
     
     /**
-     * The sealed inputs were malformed.
+     * Malformed encrypted request.
      */
     case malformedInputs
     /**
-     * The PCP hashes file was invalid or did not contain the thumbnail commitment.
+     * Invalid PCP hashes file.
      */
     case invalidHashesJson
     /**
-     * The credential image did not match the PCP thumbnail commitment.
+     * Orb image did not match its PCP commitment.
      */
     case thumbnailHashMismatch
     /**
-     * At least one comparison scored below the requested threshold.
+     * Threshold was not a finite normalized cosine value.
      */
-    case matchBelowThreshold
+    case invalidThreshold
     /**
-     * The enclave could not obtain a usable comparison score from the images.
+     * An image was empty.
      */
-    case imageAnalysisFailed
+    case emptyImage
+    /**
+     * An image or total input exceeded the limit.
+     */
+    case inputTooLarge
+    /**
+     * The backend does not implement this capture variant.
+     */
+    case unsupportedCapture
+    /**
+     * The backend does not implement this operation.
+     */
+    case unsupportedOperation
+    /**
+     * A comparison did not meet the threshold.
+     */
+    case matchBelowThreshold(
+        /**
+         * The comparison that failed.
+         */comparison: FlamingoComparison
+    )
+    /**
+     * A named image could not pass analysis.
+     */
+    case imageRejected(
+        /**
+         * Image bytes or semantic image role.
+         */image: FlamingoImageRole, 
+        /**
+         * Approved validation reason.
+         */reason: FlamingoImageFailureReason
+    )
+    /**
+     * A named comparison failed.
+     */
+    case matchingFailed(
+        /**
+         * The comparison that failed.
+         */comparison: FlamingoComparison
+    )
+    /**
+     * An infrastructure failure, not a biological rejection.
+     */
+    case `internal`
 
 
 
@@ -10240,9 +10956,26 @@ public struct FfiConverterTypeFlamingoMatchRejection: FfiConverterRustBuffer {
         
         case 3: return .thumbnailHashMismatch
         
-        case 4: return .matchBelowThreshold
+        case 4: return .invalidThreshold
         
-        case 5: return .imageAnalysisFailed
+        case 5: return .emptyImage
+        
+        case 6: return .inputTooLarge
+        
+        case 7: return .unsupportedCapture
+        
+        case 8: return .unsupportedOperation
+        
+        case 9: return .matchBelowThreshold(comparison: try FfiConverterTypeFlamingoComparison.read(from: &buf)
+        )
+        
+        case 10: return .imageRejected(image: try FfiConverterTypeFlamingoImageRole.read(from: &buf), reason: try FfiConverterTypeFlamingoImageFailureReason.read(from: &buf)
+        )
+        
+        case 11: return .matchingFailed(comparison: try FfiConverterTypeFlamingoComparison.read(from: &buf)
+        )
+        
+        case 12: return .`internal`
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -10264,12 +10997,44 @@ public struct FfiConverterTypeFlamingoMatchRejection: FfiConverterRustBuffer {
             writeInt(&buf, Int32(3))
         
         
-        case .matchBelowThreshold:
+        case .invalidThreshold:
             writeInt(&buf, Int32(4))
         
         
-        case .imageAnalysisFailed:
+        case .emptyImage:
             writeInt(&buf, Int32(5))
+        
+        
+        case .inputTooLarge:
+            writeInt(&buf, Int32(6))
+        
+        
+        case .unsupportedCapture:
+            writeInt(&buf, Int32(7))
+        
+        
+        case .unsupportedOperation:
+            writeInt(&buf, Int32(8))
+        
+        
+        case let .matchBelowThreshold(comparison):
+            writeInt(&buf, Int32(9))
+            FfiConverterTypeFlamingoComparison.write(comparison, into: &buf)
+            
+        
+        case let .imageRejected(image,reason):
+            writeInt(&buf, Int32(10))
+            FfiConverterTypeFlamingoImageRole.write(image, into: &buf)
+            FfiConverterTypeFlamingoImageFailureReason.write(reason, into: &buf)
+            
+        
+        case let .matchingFailed(comparison):
+            writeInt(&buf, Int32(11))
+            FfiConverterTypeFlamingoComparison.write(comparison, into: &buf)
+            
+        
+        case .`internal`:
+            writeInt(&buf, Int32(12))
         
         }
     }
@@ -10288,6 +11053,192 @@ public func FfiConverterTypeFlamingoMatchRejection_lift(_ buf: RustBuffer) throw
 #endif
 public func FfiConverterTypeFlamingoMatchRejection_lower(_ value: FlamingoMatchRejection) -> RustBuffer {
     return FfiConverterTypeFlamingoMatchRejection.lower(value)
+}
+
+
+
+/**
+ * Explicit operation-specific inputs. Image buffers move into the client without cloning.
+ */
+
+public enum FlamingoMatchRequest: Equatable, Hashable {
+    
+    /**
+     * Three-way matching with the exact original Orb PCP hashes.json.
+     */
+    case deepFace(
+        /**
+         * Exact encoded Orb thumbnail bytes.
+         */orbCredential: Data, 
+        /**
+         * Explicit live capture variant.
+         */live: FlamingoLiveCapture, 
+        /**
+         * Exact encoded RTMS challenge bytes.
+         */rtmsChallenge: Data, 
+        /**
+         * Original PCP hashes.json bytes.
+         */hashesJson: Data, 
+        /**
+         * Minimum normalized cosine similarity in [0, 1].
+         */matchThreshold: Double
+    )
+    /**
+     * Live/challenge matching without credential fields.
+     */
+    case grayBadge(
+        /**
+         * Explicit live capture variant.
+         */live: FlamingoLiveCapture, 
+        /**
+         * Exact encoded RTMS challenge bytes.
+         */rtmsChallenge: Data, 
+        /**
+         * Minimum normalized cosine similarity in [0, 1].
+         */matchThreshold: Double
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FlamingoMatchRequest: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFlamingoMatchRequest: FfiConverterRustBuffer {
+    typealias SwiftType = FlamingoMatchRequest
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FlamingoMatchRequest {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .deepFace(orbCredential: try FfiConverterData.read(from: &buf), live: try FfiConverterTypeFlamingoLiveCapture.read(from: &buf), rtmsChallenge: try FfiConverterData.read(from: &buf), hashesJson: try FfiConverterData.read(from: &buf), matchThreshold: try FfiConverterDouble.read(from: &buf)
+        )
+        
+        case 2: return .grayBadge(live: try FfiConverterTypeFlamingoLiveCapture.read(from: &buf), rtmsChallenge: try FfiConverterData.read(from: &buf), matchThreshold: try FfiConverterDouble.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FlamingoMatchRequest, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .deepFace(orbCredential,live,rtmsChallenge,hashesJson,matchThreshold):
+            writeInt(&buf, Int32(1))
+            FfiConverterData.write(orbCredential, into: &buf)
+            FfiConverterTypeFlamingoLiveCapture.write(live, into: &buf)
+            FfiConverterData.write(rtmsChallenge, into: &buf)
+            FfiConverterData.write(hashesJson, into: &buf)
+            FfiConverterDouble.write(matchThreshold, into: &buf)
+            
+        
+        case let .grayBadge(live,rtmsChallenge,matchThreshold):
+            writeInt(&buf, Int32(2))
+            FfiConverterTypeFlamingoLiveCapture.write(live, into: &buf)
+            FfiConverterData.write(rtmsChallenge, into: &buf)
+            FfiConverterDouble.write(matchThreshold, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoMatchRequest_lift(_ buf: RustBuffer) throws -> FlamingoMatchRequest {
+    return try FfiConverterTypeFlamingoMatchRequest.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoMatchRequest_lower(_ value: FlamingoMatchRequest) -> RustBuffer {
+    return FfiConverterTypeFlamingoMatchRequest.lower(value)
+}
+
+
+
+/**
+ * Which `LightGuard` frame provides the matching embedding.
+ */
+
+public enum FlamingoMatchingFrame: Equatable, Hashable {
+    
+    /**
+     * Use the illuminated frame.
+     */
+    case illuminated
+    /**
+     * Use the unilluminated frame.
+     */
+    case unilluminated
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FlamingoMatchingFrame: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFlamingoMatchingFrame: FfiConverterRustBuffer {
+    typealias SwiftType = FlamingoMatchingFrame
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FlamingoMatchingFrame {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .illuminated
+        
+        case 2: return .unilluminated
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FlamingoMatchingFrame, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .illuminated:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .unilluminated:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoMatchingFrame_lift(_ buf: RustBuffer) throws -> FlamingoMatchingFrame {
+    return try FfiConverterTypeFlamingoMatchingFrame.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoMatchingFrame_lower(_ value: FlamingoMatchingFrame) -> RustBuffer {
+    return FfiConverterTypeFlamingoMatchingFrame.lower(value)
 }
 
 
@@ -12478,13 +13429,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_fieldelement_to_hex_string() != 21343) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_flamingomatcher_perform_match() != 26428) {
+    if (uniffi_walletkit_core_checksum_method_flamingomatcher_perform_match() != 21980) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_flamingomatcher_with_headers() != 29784) {
+    if (uniffi_walletkit_core_checksum_method_flamingomatcher_with_headers() != 61617) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_flamingomatcher_with_measurements() != 8319) {
+    if (uniffi_walletkit_core_checksum_method_flamingomatcher_with_measurements() != 20455) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_verifiedmatchtoken_match_coefficient() != 29467) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_bind_recovery_agent() != 11385) {
@@ -12733,7 +13687,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_constructor_fieldelement_try_from_hex_string() != 24521) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_flamingomatcher_new() != 22702) {
+    if (uniffi_walletkit_core_checksum_constructor_flamingomatcher_new() != 33163) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_recoverybindingmanager_new() != 37272) {

@@ -4194,16 +4194,33 @@ public func FfiConverterTypeFieldElement_lower(_ value: FieldElement) -> UInt64 
 public protocol FlamingoMatcherProtocol: AnyObject, Sendable {
     
     /**
+     * Returns a new instance that bypasses all PCR measurement checks.
+     *
+     * No measurements are required, and previously configured pins are discarded.
+     * Certificate chain, signature, freshness, and channel key binding remain verified.
+     * Calling [`Self::with_measurements`] on the returned instance restores strict verification.
+     *
+     * # Warning
+     * Accepts any enclave code with otherwise valid attestation, including Nitro debug
+     * enclaves. Use only for development, never in production.
+     *
+     * # Errors
+     * Returns [`FlamingoError::Configuration`] if the verifier configuration cannot be built.
+     */
+    func dangerouslySkipMeasurements() throws  -> FlamingoMatcher
+    
+    /**
      * Performs an attested 3-way embedding match.
      *
-     * - Fetches the enclave assignment and verifies its attestation against the trusted PCRs.
+     * - Fetches the enclave assignment and verifies its attestation, including PCRs unless explicitly bypassed.
      * - Encrypts and sends the match inputs using the enclave's attested public key.
      * - Decrypts the result and, on success, verifies the token's signature and signing-key attestation.
      *
      * # Errors
      *
      * Returns [`FlamingoError::InvalidInput`] before making a network request when a caller value
-     * is unusable, or [`FlamingoError::Configuration`] if trusted measurements are missing.
+     * is unusable, or [`FlamingoError::Configuration`] if neither trusted measurements
+     * nor the explicit measurement bypass has been configured.
      * Other failures are returned as [`FlamingoError::Verifier`].
      */
     func performMatch(request: FlamingoMatchRequest) async throws  -> FlamingoMatchOutcome
@@ -4226,7 +4243,8 @@ public protocol FlamingoMatcherProtocol: AnyObject, Sendable {
      * are also pinned. It's the user's responsibility to ensure the measurements are from a trusted enclave and match the verifier's expectations.
      *
      * # Errors
-     * Returns [`FlamingoError::Configuration`] if no measurement is set.
+     * Returns [`FlamingoError::Configuration`] for missing PCR0/1/2, zero or malformed
+     * measurements.
      */
     func withMeasurements(measurements: [UInt32: Data]) throws  -> FlamingoMatcher
     
@@ -4304,16 +4322,40 @@ public convenience init(hostUrl: String)throws  {
 
     
     /**
+     * Returns a new instance that bypasses all PCR measurement checks.
+     *
+     * No measurements are required, and previously configured pins are discarded.
+     * Certificate chain, signature, freshness, and channel key binding remain verified.
+     * Calling [`Self::with_measurements`] on the returned instance restores strict verification.
+     *
+     * # Warning
+     * Accepts any enclave code with otherwise valid attestation, including Nitro debug
+     * enclaves. Use only for development, never in production.
+     *
+     * # Errors
+     * Returns [`FlamingoError::Configuration`] if the verifier configuration cannot be built.
+     */
+open func dangerouslySkipMeasurements()throws  -> FlamingoMatcher  {
+    return try  FfiConverterTypeFlamingoMatcher_lift(try rustCallWithError(FfiConverterTypeFlamingoError_lift) {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_flamingomatcher_dangerously_skip_measurements(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
      * Performs an attested 3-way embedding match.
      *
-     * - Fetches the enclave assignment and verifies its attestation against the trusted PCRs.
+     * - Fetches the enclave assignment and verifies its attestation, including PCRs unless explicitly bypassed.
      * - Encrypts and sends the match inputs using the enclave's attested public key.
      * - Decrypts the result and, on success, verifies the token's signature and signing-key attestation.
      *
      * # Errors
      *
      * Returns [`FlamingoError::InvalidInput`] before making a network request when a caller value
-     * is unusable, or [`FlamingoError::Configuration`] if trusted measurements are missing.
+     * is unusable, or [`FlamingoError::Configuration`] if neither trusted measurements
+     * nor the explicit measurement bypass has been configured.
      * Other failures are returned as [`FlamingoError::Verifier`].
      */
 open func performMatch(request: FlamingoMatchRequest)async throws  -> FlamingoMatchOutcome  {
@@ -4358,7 +4400,8 @@ open func withHeaders(headers: [String: String])throws  -> FlamingoMatcher  {
      * are also pinned. It's the user's responsibility to ensure the measurements are from a trusted enclave and match the verifier's expectations.
      *
      * # Errors
-     * Returns [`FlamingoError::Configuration`] if no measurement is set.
+     * Returns [`FlamingoError::Configuration`] for missing PCR0/1/2, zero or malformed
+     * measurements.
      */
 open func withMeasurements(measurements: [UInt32: Data])throws  -> FlamingoMatcher  {
     return try  FfiConverterTypeFlamingoMatcher_lift(try rustCallWithError(FfiConverterTypeFlamingoError_lift) {
@@ -10891,11 +10934,11 @@ public enum FlamingoMatchRejection: Equatable, Hashable {
      */
     case inputTooLarge
     /**
-     * The backend does not implement this capture variant.
+     * Legacy rejection retained for binding compatibility; current verifiers support all captures.
      */
     case unsupportedCapture
     /**
-     * The backend does not implement this operation.
+     * Legacy rejection retained for binding compatibility; current verifiers support all operations.
      */
     case unsupportedOperation
     /**
@@ -13429,13 +13472,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_fieldelement_to_hex_string() != 21343) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_flamingomatcher_perform_match() != 21980) {
+    if (uniffi_walletkit_core_checksum_method_flamingomatcher_dangerously_skip_measurements() != 65148) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_flamingomatcher_perform_match() != 34970) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_flamingomatcher_with_headers() != 61617) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_flamingomatcher_with_measurements() != 20455) {
+    if (uniffi_walletkit_core_checksum_method_flamingomatcher_with_measurements() != 63635) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_verifiedmatchtoken_match_coefficient() != 29467) {

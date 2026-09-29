@@ -4212,8 +4212,10 @@ public protocol FlamingoMatcherProtocol: AnyObject, Sendable {
     /**
      * Performs an attested 3-way embedding match.
      *
-     * - Fetches the enclave assignment and verifies its attestation, including PCRs unless explicitly bypassed.
-     * - Encrypts and sends the match inputs using the enclave's attested public key.
+     * - Opens a WebSocket session and verifies the enclave assignment delivered on it, including
+     * PCRs unless explicitly bypassed.
+     * - Encrypts and sends the match inputs over the same session using the enclave's attested
+     * public key.
      * - Decrypts the result and, on success, verifies the token's signature and signing-key attestation.
      *
      * # Errors
@@ -4228,11 +4230,13 @@ public protocol FlamingoMatcherProtocol: AnyObject, Sendable {
     /**
      * Returns a new instance with these default headers, replacing any previously configured set.
      *
-     * Use this to set authorization, client name, or other headers. The `Cookie` header is not allowed; the client manages affinity cookies automatically.
+     * Use this to set authorization, client name, or other headers. They are sent on the
+     * WebSocket upgrade request of every match session.
      *
      * # Errors
      * Returns [`FlamingoError::Configuration`] for invalid names/values, case-insensitive duplicate
-     * names, or a caller-supplied `Cookie` header (the client owns affinity cookies).
+     * names, a `Cookie` header, or a header the WebSocket handshake sets itself (such as `Host`,
+     * `Upgrade`, or `Sec-WebSocket-*`).
      */
     func withHeaders(headers: [String: String]) throws  -> FlamingoMatcher
     
@@ -4347,8 +4351,10 @@ open func dangerouslySkipMeasurements()throws  -> FlamingoMatcher  {
     /**
      * Performs an attested 3-way embedding match.
      *
-     * - Fetches the enclave assignment and verifies its attestation, including PCRs unless explicitly bypassed.
-     * - Encrypts and sends the match inputs using the enclave's attested public key.
+     * - Opens a WebSocket session and verifies the enclave assignment delivered on it, including
+     * PCRs unless explicitly bypassed.
+     * - Encrypts and sends the match inputs over the same session using the enclave's attested
+     * public key.
      * - Decrypts the result and, on success, verifies the token's signature and signing-key attestation.
      *
      * # Errors
@@ -4377,11 +4383,13 @@ open func performMatch(request: FlamingoMatchRequest)async throws  -> FlamingoMa
     /**
      * Returns a new instance with these default headers, replacing any previously configured set.
      *
-     * Use this to set authorization, client name, or other headers. The `Cookie` header is not allowed; the client manages affinity cookies automatically.
+     * Use this to set authorization, client name, or other headers. They are sent on the
+     * WebSocket upgrade request of every match session.
      *
      * # Errors
      * Returns [`FlamingoError::Configuration`] for invalid names/values, case-insensitive duplicate
-     * names, or a caller-supplied `Cookie` header (the client owns affinity cookies).
+     * names, a `Cookie` header, or a header the WebSocket handshake sets itself (such as `Host`,
+     * `Upgrade`, or `Sec-WebSocket-*`).
      */
 open func withHeaders(headers: [String: String])throws  -> FlamingoMatcher  {
     return try  FfiConverterTypeFlamingoMatcher_lift(try rustCallWithError(FfiConverterTypeFlamingoError_lift) {
@@ -13475,10 +13483,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_flamingomatcher_dangerously_skip_measurements() != 65148) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_flamingomatcher_perform_match() != 34970) {
+    if (uniffi_walletkit_core_checksum_method_flamingomatcher_perform_match() != 28925) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_flamingomatcher_with_headers() != 61617) {
+    if (uniffi_walletkit_core_checksum_method_flamingomatcher_with_headers() != 61271) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_flamingomatcher_with_measurements() != 63635) {

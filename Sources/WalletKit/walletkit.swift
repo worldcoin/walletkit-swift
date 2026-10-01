@@ -3038,6 +3038,16 @@ public protocol CredentialStoreProtocol: AnyObject, Sendable {
     func listCredentials(issuerSchemaId: UInt64?, now: UInt64) throws  -> [CredentialRecord]
     
     /**
+     * Adds credentials from a backup to an initialized vault, atomically and idempotently.
+     * Preserves local-only credentials and local record IDs. Returns the number of newly added credentials.
+     * The host must authenticate the backup as belonging to this account before calling.
+     *
+     * # Errors
+     * Returns an error on an invalid backup, uninitialized store, or database failure.
+     */
+    func mergeVaultFromBackup(backupBytes: Data) throws  -> UInt64
+    
+    /**
      * Records a new activity entry.
      *
      * # Errors
@@ -3395,6 +3405,26 @@ open func listCredentials(issuerSchemaId: UInt64?, now: UInt64)throws  -> [Crede
         FfiConverterOptionUInt64.lower(issuerSchemaId),
         FfiConverterUInt64.lower(now),uniffiCallStatus
     )
+})
+}
+    
+    /**
+     * Adds credentials from a backup to an initialized vault, atomically and idempotently.
+     * Preserves local-only credentials and local record IDs. Returns the number of newly added credentials.
+     * The host must authenticate the backup as belonging to this account before calling.
+     *
+     * # Errors
+     * Returns an error on an invalid backup, uninitialized store, or database failure.
+     */
+open func mergeVaultFromBackup(backupBytes: Data)throws  -> UInt64  {
+    return try  FfiConverterUInt64.lift(try rustCallWithError(FfiConverterTypeStorageError_lift) {
+        uniffiCallStatus in
+        FfiConverterByRefBytes.lower(backupBytes) { backupBytesFb in
+    uniffi_walletkit_core_fn_method_credentialstore_merge_vault_from_backup(
+            self.uniffiCloneHandle(),
+        backupBytesFb,uniffiCallStatus
+    )
+        }
 })
 }
     
@@ -13571,6 +13601,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_credentialstore_list_credentials() != 52779) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_credentialstore_merge_vault_from_backup() != 45640) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_credentialstore_record_activity() != 31602) {

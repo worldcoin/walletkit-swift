@@ -4240,7 +4240,7 @@ public protocol FlamingoMatcherProtocol: AnyObject, Sendable {
     func dangerouslySkipMeasurements() throws  -> FlamingoMatcher
     
     /**
-     * Performs an attested 3-way embedding match.
+     * Performs a attested 3-way embedding match and returns the outcome and optional worker diagnostics.
      *
      * - Opens a WebSocket session and verifies the enclave assignment delivered on it, including
      * PCRs unless explicitly bypassed.
@@ -4253,7 +4253,7 @@ public protocol FlamingoMatcherProtocol: AnyObject, Sendable {
      * Returns [`FlamingoError::InvalidInput`] before making a network request when a caller value
      * is unusable, or [`FlamingoError::Configuration`] if neither trusted measurements
      * nor the explicit measurement bypass has been configured.
-     * Other failures are returned as [`FlamingoError::Verifier`].
+     * Service, transport and verification failures are returned as typed [`FlamingoError`] variants.
      */
     func performMatch(request: FlamingoMatchRequest) async throws  -> FlamingoMatchOutcome
     
@@ -4379,7 +4379,7 @@ open func dangerouslySkipMeasurements()throws  -> FlamingoMatcher  {
 }
     
     /**
-     * Performs an attested 3-way embedding match.
+     * Performs a attested 3-way embedding match and returns the outcome and optional worker diagnostics.
      *
      * - Opens a WebSocket session and verifies the enclave assignment delivered on it, including
      * PCRs unless explicitly bypassed.
@@ -4392,7 +4392,7 @@ open func dangerouslySkipMeasurements()throws  -> FlamingoMatcher  {
      * Returns [`FlamingoError::InvalidInput`] before making a network request when a caller value
      * is unusable, or [`FlamingoError::Configuration`] if neither trusted measurements
      * nor the explicit measurement bypass has been configured.
-     * Other failures are returned as [`FlamingoError::Verifier`].
+     * Service, transport and verification failures are returned as typed [`FlamingoError`] variants.
      */
 open func performMatch(request: FlamingoMatchRequest)async throws  -> FlamingoMatchOutcome  {
     return
@@ -7893,7 +7893,8 @@ public func FfiConverterTypeVaultChangedListener_lower(_ value: VaultChangedList
 public protocol VerifiedMatchTokenProtocol: AnyObject, Sendable {
     
     /**
-     * Credential-versus-live normalized similarity authenticated by the token.
+     * Operation-specific normalized similarity authenticated by the token.
+     * `DeepFace`: credential/live. `GrayBadge`: live/challenge.
      *
      * The other two comparison scores and the requested threshold are not in the token.
      */
@@ -7960,7 +7961,8 @@ open class VerifiedMatchToken: VerifiedMatchTokenProtocol, @unchecked Sendable {
 
     
     /**
-     * Credential-versus-live normalized similarity authenticated by the token.
+     * Operation-specific normalized similarity authenticated by the token.
+     * `DeepFace`: credential/live. `GrayBadge`: live/challenge.
      *
      * The other two comparison scores and the requested threshold are not in the token.
      */
@@ -10081,6 +10083,103 @@ public func FfiConverterTypeFlamingoComparison_lower(_ value: FlamingoComparison
 
 
 /**
+ * Worker diagnostic delivery status. JSON is excluded from `Debug` output.
+ */
+
+public enum FlamingoDebugReport: Equatable, Hashable {
+    
+    /**
+     * Original worker JSON without reserialization.
+     */
+    case available(
+        /**
+         * Bounded original UTF-8 JSON.
+         */json: String
+    )
+    /**
+     * Worker did not produce a report or inference did not run.
+     */
+    case notProduced
+    /**
+     * Entire report omitted while preserving the match outcome.
+     */
+    case omittedTooLarge(
+        /**
+         * Original UTF-8 byte count.
+         */originalSizeBytes: UInt64
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FlamingoDebugReport: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFlamingoDebugReport: FfiConverterRustBuffer {
+    typealias SwiftType = FlamingoDebugReport
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FlamingoDebugReport {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .available(json: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 2: return .notProduced
+        
+        case 3: return .omittedTooLarge(originalSizeBytes: try FfiConverterUInt64.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FlamingoDebugReport, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .available(json):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(json, into: &buf)
+            
+        
+        case .notProduced:
+            writeInt(&buf, Int32(2))
+        
+        
+        case let .omittedTooLarge(originalSizeBytes):
+            writeInt(&buf, Int32(3))
+            FfiConverterUInt64.write(originalSizeBytes, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoDebugReport_lift(_ buf: RustBuffer) throws -> FlamingoDebugReport {
+    return try FfiConverterTypeFlamingoDebugReport.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoDebugReport_lower(_ value: FlamingoDebugReport) -> RustBuffer {
+    return FfiConverterTypeFlamingoDebugReport.lower(value)
+}
+
+
+
+/**
  * Failures while configuring or performing a match request.
  */
 public 
@@ -10097,7 +10196,13 @@ enum FlamingoError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError 
          */attribute: String, 
         /**
          * Why the value was rejected.
-         */reason: String
+         */reason: String, 
+        /**
+         * Stable constraint code; applications need not parse the message.
+         */kind: FlamingoInputFailureKind, 
+        /**
+         * Byte limit when applicable.
+         */limitBytes: UInt64?
     )
     /**
      * The verifier configuration was not valid.
@@ -10105,10 +10210,64 @@ enum FlamingoError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError 
     case Configuration(String
     )
     /**
-     * Assignment, attestation, transport, channel opening, or token verification failed.
+     * The host returned a machine-readable service error.
      */
-    case Verifier(String
+    case Service(
+        /**
+         * Exact host code.
+         */code: String, 
+        /**
+         * Host retry hint, not an automatic retry policy.
+         */allowRetry: Bool
     )
+    /**
+     * Configured exchange deadline expired.
+     */
+    case Timeout
+    /**
+     * Connection closed, handshake or network I/O failed.
+     */
+    case Transport(
+        /**
+         * Supplementary diagnostic text.
+         */details: String
+    )
+    /**
+     * Assignment, host message or decrypted result was malformed.
+     */
+    case InvalidResponse(
+        /**
+         * Protocol stage.
+         */stage: FlamingoResponseStage
+    )
+    /**
+     * Signing-key attestation did not verify.
+     */
+    case Attestation(
+        /**
+         * Supplementary diagnostic text.
+         */details: String
+    )
+    /**
+     * Channel attestation, binding, sealing or opening failed.
+     */
+    case Channel(
+        /**
+         * Supplementary diagnostic text.
+         */details: String
+    )
+    /**
+     * Attested signing key was invalid.
+     */
+    case InvalidSigningKey
+    /**
+     * Token signature or request commitments did not verify.
+     */
+    case StatementInvalid
+    /**
+     * The one internal reassignment retry was exhausted.
+     */
+    case ReassignmentRequired
 
     
 
@@ -10140,14 +10299,33 @@ public struct FfiConverterTypeFlamingoError: FfiConverterRustBuffer {
         
         case 1: return .InvalidInput(
             attribute: try FfiConverterString.read(from: &buf), 
-            reason: try FfiConverterString.read(from: &buf)
+            reason: try FfiConverterString.read(from: &buf), 
+            kind: try FfiConverterTypeFlamingoInputFailureKind.read(from: &buf), 
+            limitBytes: try FfiConverterOptionUInt64.read(from: &buf)
             )
         case 2: return .Configuration(
             try FfiConverterString.read(from: &buf)
             )
-        case 3: return .Verifier(
-            try FfiConverterString.read(from: &buf)
+        case 3: return .Service(
+            code: try FfiConverterString.read(from: &buf), 
+            allowRetry: try FfiConverterBool.read(from: &buf)
             )
+        case 4: return .Timeout
+        case 5: return .Transport(
+            details: try FfiConverterString.read(from: &buf)
+            )
+        case 6: return .InvalidResponse(
+            stage: try FfiConverterTypeFlamingoResponseStage.read(from: &buf)
+            )
+        case 7: return .Attestation(
+            details: try FfiConverterString.read(from: &buf)
+            )
+        case 8: return .Channel(
+            details: try FfiConverterString.read(from: &buf)
+            )
+        case 9: return .InvalidSigningKey
+        case 10: return .StatementInvalid
+        case 11: return .ReassignmentRequired
 
          default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -10160,10 +10338,12 @@ public struct FfiConverterTypeFlamingoError: FfiConverterRustBuffer {
 
         
         
-        case let .InvalidInput(attribute,reason):
+        case let .InvalidInput(attribute,reason,kind,limitBytes):
             writeInt(&buf, Int32(1))
             FfiConverterString.write(attribute, into: &buf)
             FfiConverterString.write(reason, into: &buf)
+            FfiConverterTypeFlamingoInputFailureKind.write(kind, into: &buf)
+            FfiConverterOptionUInt64.write(limitBytes, into: &buf)
             
         
         case let .Configuration(v1):
@@ -10171,10 +10351,47 @@ public struct FfiConverterTypeFlamingoError: FfiConverterRustBuffer {
             FfiConverterString.write(v1, into: &buf)
             
         
-        case let .Verifier(v1):
+        case let .Service(code,allowRetry):
             writeInt(&buf, Int32(3))
-            FfiConverterString.write(v1, into: &buf)
+            FfiConverterString.write(code, into: &buf)
+            FfiConverterBool.write(allowRetry, into: &buf)
             
+        
+        case .Timeout:
+            writeInt(&buf, Int32(4))
+        
+        
+        case let .Transport(details):
+            writeInt(&buf, Int32(5))
+            FfiConverterString.write(details, into: &buf)
+            
+        
+        case let .InvalidResponse(stage):
+            writeInt(&buf, Int32(6))
+            FfiConverterTypeFlamingoResponseStage.write(stage, into: &buf)
+            
+        
+        case let .Attestation(details):
+            writeInt(&buf, Int32(7))
+            FfiConverterString.write(details, into: &buf)
+            
+        
+        case let .Channel(details):
+            writeInt(&buf, Int32(8))
+            FfiConverterString.write(details, into: &buf)
+            
+        
+        case .InvalidSigningKey:
+            writeInt(&buf, Int32(9))
+        
+        
+        case .StatementInvalid:
+            writeInt(&buf, Int32(10))
+        
+        
+        case .ReassignmentRequired:
+            writeInt(&buf, Int32(11))
+        
         }
     }
 }
@@ -10766,6 +10983,216 @@ public func FfiConverterTypeFlamingoImageRole_lower(_ value: FlamingoImageRole) 
 
 
 /**
+ * Local input constraints exported to mobile callers.
+ */
+
+public enum FlamingoInputFailureKind: Equatable, Hashable {
+    
+    /**
+     * The field is empty.
+     */
+    case empty
+    /**
+     * The field exceeded its size limit.
+     */
+    case tooLarge
+    /**
+     * The images exceeded the combined limit.
+     */
+    case totalTooLarge
+    /**
+     * The threshold is nonfinite or outside `[0, 1]`.
+     */
+    case invalidThreshold
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FlamingoInputFailureKind: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFlamingoInputFailureKind: FfiConverterRustBuffer {
+    typealias SwiftType = FlamingoInputFailureKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FlamingoInputFailureKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .empty
+        
+        case 2: return .tooLarge
+        
+        case 3: return .totalTooLarge
+        
+        case 4: return .invalidThreshold
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FlamingoInputFailureKind, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .empty:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .tooLarge:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .totalTooLarge:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .invalidThreshold:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoInputFailureKind_lift(_ buf: RustBuffer) throws -> FlamingoInputFailureKind {
+    return try FfiConverterTypeFlamingoInputFailureKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoInputFailureKind_lower(_ value: FlamingoInputFailureKind) -> RustBuffer {
+    return FfiConverterTypeFlamingoInputFailureKind.lower(value)
+}
+
+
+
+/**
+ * Worker input constraints exported to mobile callers.
+ */
+
+public enum FlamingoInputFailureReason: Equatable, Hashable {
+    
+    /**
+     * A required image is missing.
+     */
+    case missingImage
+    /**
+     * A capture source is missing.
+     */
+    case missingSource
+    /**
+     * The selected matching frame is invalid.
+     */
+    case invalidMatchingFrame
+    /**
+     * An image buffer is empty.
+     */
+    case emptyImage
+    /**
+     * One image exceeded its size limit.
+     */
+    case imageTooLarge
+    /**
+     * All image bytes exceeded the combined limit.
+     */
+    case totalImagesTooLarge
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FlamingoInputFailureReason: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFlamingoInputFailureReason: FfiConverterRustBuffer {
+    typealias SwiftType = FlamingoInputFailureReason
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FlamingoInputFailureReason {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .missingImage
+        
+        case 2: return .missingSource
+        
+        case 3: return .invalidMatchingFrame
+        
+        case 4: return .emptyImage
+        
+        case 5: return .imageTooLarge
+        
+        case 6: return .totalImagesTooLarge
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FlamingoInputFailureReason, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .missingImage:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .missingSource:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .invalidMatchingFrame:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .emptyImage:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .imageTooLarge:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .totalImagesTooLarge:
+            writeInt(&buf, Int32(6))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoInputFailureReason_lift(_ buf: RustBuffer) throws -> FlamingoInputFailureReason {
+    return try FfiConverterTypeFlamingoInputFailureReason.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoInputFailureReason_lower(_ value: FlamingoInputFailureReason) -> RustBuffer {
+    return FfiConverterTypeFlamingoInputFailureReason.lower(value)
+}
+
+
+
+/**
  * A single image or an explicitly selected `LightGuard` pair.
  */
 
@@ -10869,12 +11296,24 @@ public enum FlamingoMatchOutcome {
     /**
      * The enclave issued a token and `WalletKit` verified it against an attested signing key.
      */
-    case matched(VerifiedMatchToken
+    case matched(
+        /**
+         * Verified token handle for proof consumers.
+         */token: VerifiedMatchToken, 
+        /**
+         * Original worker diagnostics, not signed proof claims.
+         */debugReport: FlamingoDebugReport
     )
     /**
      * The response reported a rejection. An unsigned rejection does not authenticate its sender.
      */
-    case rejected(FlamingoMatchRejection
+    case rejected(
+        /**
+         * Structured input or biometric rejection.
+         */reason: FlamingoMatchRejection, 
+        /**
+         * Worker diagnostics, if produced before rejection.
+         */debugReport: FlamingoDebugReport
     )
 
 
@@ -10897,10 +11336,10 @@ public struct FfiConverterTypeFlamingoMatchOutcome: FfiConverterRustBuffer {
         let variant: Int32 = try readInt(&buf)
         switch variant {
         
-        case 1: return .matched(try FfiConverterTypeVerifiedMatchToken.read(from: &buf)
+        case 1: return .matched(token: try FfiConverterTypeVerifiedMatchToken.read(from: &buf), debugReport: try FfiConverterTypeFlamingoDebugReport.read(from: &buf)
         )
         
-        case 2: return .rejected(try FfiConverterTypeFlamingoMatchRejection.read(from: &buf)
+        case 2: return .rejected(reason: try FfiConverterTypeFlamingoMatchRejection.read(from: &buf), debugReport: try FfiConverterTypeFlamingoDebugReport.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -10911,14 +11350,16 @@ public struct FfiConverterTypeFlamingoMatchOutcome: FfiConverterRustBuffer {
         switch value {
         
         
-        case let .matched(v1):
+        case let .matched(token,debugReport):
             writeInt(&buf, Int32(1))
-            FfiConverterTypeVerifiedMatchToken.write(v1, into: &buf)
+            FfiConverterTypeVerifiedMatchToken.write(token, into: &buf)
+            FfiConverterTypeFlamingoDebugReport.write(debugReport, into: &buf)
             
         
-        case let .rejected(v1):
+        case let .rejected(reason,debugReport):
             writeInt(&buf, Int32(2))
-            FfiConverterTypeFlamingoMatchRejection.write(v1, into: &buf)
+            FfiConverterTypeFlamingoMatchRejection.write(reason, into: &buf)
+            FfiConverterTypeFlamingoDebugReport.write(debugReport, into: &buf)
             
         }
     }
@@ -10964,21 +11405,19 @@ public enum FlamingoMatchRejection: Equatable, Hashable {
      */
     case invalidThreshold
     /**
-     * An image was empty.
+     * Exact malformed-input reason and the location/limit supplied by the service.
      */
-    case emptyImage
-    /**
-     * An image or total input exceeded the limit.
-     */
-    case inputTooLarge
-    /**
-     * Legacy rejection retained for binding compatibility; current verifiers support all captures.
-     */
-    case unsupportedCapture
-    /**
-     * Legacy rejection retained for binding compatibility; current verifiers support all operations.
-     */
-    case unsupportedOperation
+    case inputRejected(
+        /**
+         * Failed constraint.
+         */reason: FlamingoInputFailureReason, 
+        /**
+         * Semantic image role, if supplied.
+         */image: FlamingoImageRole?, 
+        /**
+         * Size limit, when supplied.
+         */limitBytes: UInt64?
+    )
     /**
      * A comparison did not meet the threshold.
      */
@@ -10996,7 +11435,10 @@ public enum FlamingoMatchRejection: Equatable, Hashable {
          */image: FlamingoImageRole, 
         /**
          * Approved validation reason.
-         */reason: FlamingoImageFailureReason
+         */reason: FlamingoImageFailureReason, 
+        /**
+         * Frame/pair target, if the failure came from validation.
+         */target: FlamingoValidationTarget?
     )
     /**
      * A named comparison failed.
@@ -11039,24 +11481,19 @@ public struct FfiConverterTypeFlamingoMatchRejection: FfiConverterRustBuffer {
         
         case 4: return .invalidThreshold
         
-        case 5: return .emptyImage
-        
-        case 6: return .inputTooLarge
-        
-        case 7: return .unsupportedCapture
-        
-        case 8: return .unsupportedOperation
-        
-        case 9: return .matchBelowThreshold(comparison: try FfiConverterTypeFlamingoComparison.read(from: &buf)
+        case 5: return .inputRejected(reason: try FfiConverterTypeFlamingoInputFailureReason.read(from: &buf), image: try FfiConverterOptionTypeFlamingoImageRole.read(from: &buf), limitBytes: try FfiConverterOptionUInt64.read(from: &buf)
         )
         
-        case 10: return .imageRejected(image: try FfiConverterTypeFlamingoImageRole.read(from: &buf), reason: try FfiConverterTypeFlamingoImageFailureReason.read(from: &buf)
+        case 6: return .matchBelowThreshold(comparison: try FfiConverterTypeFlamingoComparison.read(from: &buf)
         )
         
-        case 11: return .matchingFailed(comparison: try FfiConverterTypeFlamingoComparison.read(from: &buf)
+        case 7: return .imageRejected(image: try FfiConverterTypeFlamingoImageRole.read(from: &buf), reason: try FfiConverterTypeFlamingoImageFailureReason.read(from: &buf), target: try FfiConverterOptionTypeFlamingoValidationTarget.read(from: &buf)
         )
         
-        case 12: return .`internal`
+        case 8: return .matchingFailed(comparison: try FfiConverterTypeFlamingoComparison.read(from: &buf)
+        )
+        
+        case 9: return .`internal`
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -11082,40 +11519,32 @@ public struct FfiConverterTypeFlamingoMatchRejection: FfiConverterRustBuffer {
             writeInt(&buf, Int32(4))
         
         
-        case .emptyImage:
+        case let .inputRejected(reason,image,limitBytes):
             writeInt(&buf, Int32(5))
-        
-        
-        case .inputTooLarge:
-            writeInt(&buf, Int32(6))
-        
-        
-        case .unsupportedCapture:
-            writeInt(&buf, Int32(7))
-        
-        
-        case .unsupportedOperation:
-            writeInt(&buf, Int32(8))
-        
+            FfiConverterTypeFlamingoInputFailureReason.write(reason, into: &buf)
+            FfiConverterOptionTypeFlamingoImageRole.write(image, into: &buf)
+            FfiConverterOptionUInt64.write(limitBytes, into: &buf)
+            
         
         case let .matchBelowThreshold(comparison):
-            writeInt(&buf, Int32(9))
+            writeInt(&buf, Int32(6))
             FfiConverterTypeFlamingoComparison.write(comparison, into: &buf)
             
         
-        case let .imageRejected(image,reason):
-            writeInt(&buf, Int32(10))
+        case let .imageRejected(image,reason,target):
+            writeInt(&buf, Int32(7))
             FfiConverterTypeFlamingoImageRole.write(image, into: &buf)
             FfiConverterTypeFlamingoImageFailureReason.write(reason, into: &buf)
+            FfiConverterOptionTypeFlamingoValidationTarget.write(target, into: &buf)
             
         
         case let .matchingFailed(comparison):
-            writeInt(&buf, Int32(11))
+            writeInt(&buf, Int32(8))
             FfiConverterTypeFlamingoComparison.write(comparison, into: &buf)
             
         
         case .`internal`:
-            writeInt(&buf, Int32(12))
+            writeInt(&buf, Int32(9))
         
         }
     }
@@ -11320,6 +11749,186 @@ public func FfiConverterTypeFlamingoMatchingFrame_lift(_ buf: RustBuffer) throws
 #endif
 public func FfiConverterTypeFlamingoMatchingFrame_lower(_ value: FlamingoMatchingFrame) -> RustBuffer {
     return FfiConverterTypeFlamingoMatchingFrame.lower(value)
+}
+
+
+
+/**
+ * Response stages exported to mobile callers.
+ */
+
+public enum FlamingoResponseStage: Equatable, Hashable {
+    
+    /**
+     * The assignment document or public key.
+     */
+    case assignment
+    /**
+     * A host protocol message.
+     */
+    case hostMessage
+    /**
+     * The decrypted match response.
+     */
+    case matchResult
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FlamingoResponseStage: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFlamingoResponseStage: FfiConverterRustBuffer {
+    typealias SwiftType = FlamingoResponseStage
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FlamingoResponseStage {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .assignment
+        
+        case 2: return .hostMessage
+        
+        case 3: return .matchResult
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FlamingoResponseStage, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .assignment:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .hostMessage:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .matchResult:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoResponseStage_lift(_ buf: RustBuffer) throws -> FlamingoResponseStage {
+    return try FfiConverterTypeFlamingoResponseStage.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoResponseStage_lower(_ value: FlamingoResponseStage) -> RustBuffer {
+    return FfiConverterTypeFlamingoResponseStage.lower(value)
+}
+
+
+
+/**
+ * Capture validation targets exported to mobile callers.
+ */
+
+public enum FlamingoValidationTarget: Equatable, Hashable {
+    
+    /**
+     * A single image.
+     */
+    case image
+    /**
+     * The illuminated frame.
+     */
+    case illuminatedFrame
+    /**
+     * The unilluminated frame.
+     */
+    case unilluminatedFrame
+    /**
+     * The complete challenge-response pair.
+     */
+    case lightGuardPair
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FlamingoValidationTarget: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFlamingoValidationTarget: FfiConverterRustBuffer {
+    typealias SwiftType = FlamingoValidationTarget
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FlamingoValidationTarget {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .image
+        
+        case 2: return .illuminatedFrame
+        
+        case 3: return .unilluminatedFrame
+        
+        case 4: return .lightGuardPair
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FlamingoValidationTarget, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .image:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .illuminatedFrame:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .unilluminatedFrame:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .lightGuardPair:
+            writeInt(&buf, Int32(4))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoValidationTarget_lift(_ buf: RustBuffer) throws -> FlamingoValidationTarget {
+    return try FfiConverterTypeFlamingoValidationTarget.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoValidationTarget_lower(_ value: FlamingoValidationTarget) -> RustBuffer {
+    return FfiConverterTypeFlamingoValidationTarget.lower(value)
 }
 
 
@@ -12899,6 +13508,54 @@ fileprivate struct FfiConverterOptionTypeActivityFailureReason: FfiConverterRust
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeFlamingoImageRole: FfiConverterRustBuffer {
+    typealias SwiftType = FlamingoImageRole?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeFlamingoImageRole.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeFlamingoImageRole.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeFlamingoValidationTarget: FfiConverterRustBuffer {
+    typealias SwiftType = FlamingoValidationTarget?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeFlamingoValidationTarget.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeFlamingoValidationTarget.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeLogLevel: FfiConverterRustBuffer {
     typealias SwiftType = LogLevel?
 
@@ -13513,7 +14170,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_flamingomatcher_dangerously_skip_measurements() != 65148) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_flamingomatcher_perform_match() != 28925) {
+    if (uniffi_walletkit_core_checksum_method_flamingomatcher_perform_match() != 18981) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_flamingomatcher_with_headers() != 61271) {
@@ -13522,7 +14179,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_flamingomatcher_with_measurements() != 63635) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_verifiedmatchtoken_match_coefficient() != 29467) {
+    if (uniffi_walletkit_core_checksum_method_verifiedmatchtoken_match_coefficient() != 18614) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_bind_recovery_agent() != 11385) {

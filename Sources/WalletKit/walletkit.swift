@@ -900,6 +900,155 @@ public func FfiConverterTypeActivityChangedListener_lower(_ value: ActivityChang
 
 
 /**
+ * Filtering/sorting options for [`super::CredentialStore::list_activities`].
+ *
+ * Build one with [`ActivityQuery::new`] and add filters with the `with_*`
+ * methods, so new filters can be added without changing constructors on the
+ * foreign side.
+ */
+public protocol ActivityQueryProtocol: AnyObject, Sendable {
+    
+    /**
+     * Restricts results to entries that include this issuer schema id.
+     */
+    func withIssuerSchemaId(issuerSchemaId: UInt64)  -> ActivityQuery
+    
+}
+/**
+ * Filtering/sorting options for [`super::CredentialStore::list_activities`].
+ *
+ * Build one with [`ActivityQuery::new`] and add filters with the `with_*`
+ * methods, so new filters can be added without changing constructors on the
+ * foreign side.
+ */
+open class ActivityQuery: ActivityQueryProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_activityquery(self.handle, $0) }
+    }
+    /**
+     * Creates a query with no filters.
+     */
+public convenience init() {
+    let handle =
+        try! rustCall() {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_constructor_activityquery_new(uniffiCallStatus
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_activityquery(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Restricts results to entries that include this issuer schema id.
+     */
+open func withIssuerSchemaId(issuerSchemaId: UInt64) -> ActivityQuery  {
+    return try!  FfiConverterTypeActivityQuery_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_activityquery_with_issuer_schema_id(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt64.lower(issuerSchemaId),uniffiCallStatus
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeActivityQuery: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = ActivityQuery
+
+    public static func lift(_ handle: UInt64) throws -> ActivityQuery {
+        return ActivityQuery(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: ActivityQuery) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ActivityQuery {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: ActivityQuery, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeActivityQuery_lift(_ handle: UInt64) throws -> ActivityQuery {
+    return try FfiConverterTypeActivityQuery.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeActivityQuery_lower(_ value: ActivityQuery) -> UInt64 {
+    return FfiConverterTypeActivityQuery.lower(value)
+}
+
+
+
+
+
+
+/**
  * Allows interacting with the `WorldIDAddressBook` contract.
  *
  * The address book allows users to verify their Wallet Address as Orb verified for a period of time.
@@ -4242,6 +4391,8 @@ public protocol FlamingoMatcherProtocol: AnyObject, Sendable {
     /**
      * Performs a attested 3-way embedding match and returns the outcome and optional worker diagnostics.
      *
+     * Prepares an integrity session and signs the WebSocket upgrade before the match flow:
+     *
      * - Opens a WebSocket session and verifies the enclave assignment delivered on it, including
      * PCRs unless explicitly bypassed.
      * - Encrypts and sends the match inputs over the same session using the enclave's attested
@@ -4253,6 +4404,7 @@ public protocol FlamingoMatcherProtocol: AnyObject, Sendable {
      * Returns [`FlamingoError::InvalidInput`] before making a network request when a caller value
      * is unusable, or [`FlamingoError::Configuration`] if neither trusted measurements
      * nor the explicit measurement bypass has been configured.
+     * Native authentication failures are returned as [`FlamingoError::RequestIntegrity`].
      * Service, transport and verification failures are returned as typed [`FlamingoError`] variants.
      */
     func performMatch(request: FlamingoMatchRequest) async throws  -> FlamingoMatchOutcome
@@ -4266,7 +4418,8 @@ public protocol FlamingoMatcherProtocol: AnyObject, Sendable {
      * # Errors
      * Returns [`FlamingoError::Configuration`] for invalid names/values, case-insensitive duplicate
      * names, a `Cookie` header, or a header the WebSocket handshake sets itself (such as `Host`,
-     * `Upgrade`, or `Sec-WebSocket-*`).
+     * `Upgrade`, or `Sec-WebSocket-*`). `Integrity-Token`, `Signature-Input`, and
+     * `Signature` are reserved for request integrity.
      */
     func withHeaders(headers: [String: String]) throws  -> FlamingoMatcher
     
@@ -4326,11 +4479,14 @@ open class FlamingoMatcher: FlamingoMatcherProtocol, @unchecked Sendable {
         return try! rustCall { uniffi_walletkit_core_fn_clone_flamingomatcher(self.handle, $0) }
     }
     /**
-     * Creates an instance with default values, use `with_measurements` and `with_headers` for customization.
+     * Creates a legacy matcher; supply app-token authentication with [`Self::with_headers`].
+     *
+     * Configure enclave measurements with [`Self::with_measurements`].
      *
      * # Errors
      *
-     * Returns [`FlamingoError::Configuration`] if the URL is not a valid HTTP(S) URL.
+     * Returns [`FlamingoError::Configuration`] if the URL is not a valid HTTP(S) URL
+     * or contains credentials or a fragment.
      */
 public convenience init(hostUrl: String)throws  {
     let handle =
@@ -4352,6 +4508,26 @@ public convenience init(hostUrl: String)throws  {
         try! rustCall { uniffi_walletkit_core_fn_free_flamingomatcher(handle, $0) }
     }
 
+    
+    /**
+     * Creates a matcher that signs every connection with a host-provided integrity session.
+     *
+     * Select this mode before connecting. Authentication failures never fall back to legacy.
+     * Configure enclave measurements with [`Self::with_measurements`].
+     *
+     * # Errors
+     * Returns [`FlamingoError::Configuration`] unless the URL is HTTPS without credentials
+     * or a fragment. Tokens and signatures must only be sent over an encrypted transport.
+     */
+public static func newAttested(hostUrl: String, integrityProvider: RequestIntegrityProvider)throws  -> FlamingoMatcher  {
+    return try  FfiConverterTypeFlamingoMatcher_lift(try rustCallWithError(FfiConverterTypeFlamingoError_lift) {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_constructor_flamingomatcher_new_attested(
+        FfiConverterString.lower(hostUrl),
+        FfiConverterTypeRequestIntegrityProvider_lower(integrityProvider),uniffiCallStatus
+    )
+})
+}
     
 
     
@@ -4381,6 +4557,8 @@ open func dangerouslySkipMeasurements()throws  -> FlamingoMatcher  {
     /**
      * Performs a attested 3-way embedding match and returns the outcome and optional worker diagnostics.
      *
+     * Prepares an integrity session and signs the WebSocket upgrade before the match flow:
+     *
      * - Opens a WebSocket session and verifies the enclave assignment delivered on it, including
      * PCRs unless explicitly bypassed.
      * - Encrypts and sends the match inputs over the same session using the enclave's attested
@@ -4392,6 +4570,7 @@ open func dangerouslySkipMeasurements()throws  -> FlamingoMatcher  {
      * Returns [`FlamingoError::InvalidInput`] before making a network request when a caller value
      * is unusable, or [`FlamingoError::Configuration`] if neither trusted measurements
      * nor the explicit measurement bypass has been configured.
+     * Native authentication failures are returned as [`FlamingoError::RequestIntegrity`].
      * Service, transport and verification failures are returned as typed [`FlamingoError`] variants.
      */
 open func performMatch(request: FlamingoMatchRequest)async throws  -> FlamingoMatchOutcome  {
@@ -4419,7 +4598,8 @@ open func performMatch(request: FlamingoMatchRequest)async throws  -> FlamingoMa
      * # Errors
      * Returns [`FlamingoError::Configuration`] for invalid names/values, case-insensitive duplicate
      * names, a `Cookie` header, or a header the WebSocket handshake sets itself (such as `Host`,
-     * `Upgrade`, or `Sec-WebSocket-*`).
+     * `Upgrade`, or `Sec-WebSocket-*`). `Integrity-Token`, `Signature-Input`, and
+     * `Signature` are reserved for request integrity.
      */
 open func withHeaders(headers: [String: String])throws  -> FlamingoMatcher  {
     return try  FfiConverterTypeFlamingoMatcher_lift(try rustCallWithError(FfiConverterTypeFlamingoError_lift) {
@@ -6542,6 +6722,494 @@ public func FfiConverterTypeRecoveryBindingManager_lower(_ value: RecoveryBindin
 
 
 /**
+ * Signs a SHA-256 client-data digest with the key certified by the session token.
+ *
+ * The host captures the key identifier and audience in this object. `WalletKit` never
+ * receives private-key material. The callback is invoked on a blocking worker.
+ * A running native signing operation cannot be cancelled when authentication times
+ * out; its late result is discarded. At most four native signing calls run process-wide;
+ * a timed-out call retains its slot until the native callback returns.
+ */
+public protocol RequestDigestSigner: AnyObject, Sendable {
+    
+    /**
+     * Signs exactly 32 bytes and returns the platform's native signature encoding.
+     *
+     * iOS returns an App Attest assertion; Android returns a DER ECDSA signature.
+     * The digest must be forwarded unchanged. Android must sign this precomputed hash,
+     * without hashing it again; iOS passes it directly as App Attest's `clientDataHash`.
+     *
+     * # Errors
+     * Returns [`RequestIntegrityError`] if native signing cannot complete.
+     */
+    func signDigest(clientDataHash: Data) throws  -> Data
+    
+}
+/**
+ * Signs a SHA-256 client-data digest with the key certified by the session token.
+ *
+ * The host captures the key identifier and audience in this object. `WalletKit` never
+ * receives private-key material. The callback is invoked on a blocking worker.
+ * A running native signing operation cannot be cancelled when authentication times
+ * out; its late result is discarded. At most four native signing calls run process-wide;
+ * a timed-out call retains its slot until the native callback returns.
+ */
+open class RequestDigestSignerImpl: RequestDigestSigner, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_requestdigestsigner(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_requestdigestsigner(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Signs exactly 32 bytes and returns the platform's native signature encoding.
+     *
+     * iOS returns an App Attest assertion; Android returns a DER ECDSA signature.
+     * The digest must be forwarded unchanged. Android must sign this precomputed hash,
+     * without hashing it again; iOS passes it directly as App Attest's `clientDataHash`.
+     *
+     * # Errors
+     * Returns [`RequestIntegrityError`] if native signing cannot complete.
+     */
+open func signDigest(clientDataHash: Data)throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeRequestIntegrityError_lift) {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_requestdigestsigner_sign_digest(
+            self.uniffiCloneHandle(),
+        FfiConverterData.lower(clientDataHash),uniffiCallStatus
+    )
+})
+}
+    
+
+    
+}
+
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceRequestDigestSigner {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceRequestDigestSigner = UniffiVTableCallbackInterfaceRequestDigestSigner(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeRequestDigestSigner.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface RequestDigestSigner: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeRequestDigestSigner.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface RequestDigestSigner: handle missing in uniffiClone")
+            }
+        },
+        signDigest: { (
+            uniffiHandle: UInt64,
+            clientDataHash: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> Data in
+                guard let uniffiObj = try? FfiConverterTypeRequestDigestSigner.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try uniffiObj.signDigest(
+                     clientDataHash: try FfiConverterData.lift(clientDataHash)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterData.lower($0) }
+            uniffiTraitInterfaceCallWithError(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn,
+                lowerError: FfiConverterTypeRequestIntegrityError_lower
+            )
+        }
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    //
+    // `nonisolated(unsafe)` is needed under Swift 6 strict concurrency.
+    // This is safe because the pointee is initialized once during static init
+    // and never mutated by either side of the FFI.  Its fields are C function pointers.
+    nonisolated(unsafe) static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceRequestDigestSigner> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceRequestDigestSigner>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
+}
+
+private func uniffiCallbackInitRequestDigestSigner() {
+    uniffi_walletkit_core_fn_init_callback_vtable_requestdigestsigner(UniffiCallbackInterfaceRequestDigestSigner.vtablePtr)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRequestDigestSigner: FfiConverter {
+    fileprivate static let handleMap = UniffiHandleMap<RequestDigestSigner>()
+
+    typealias FfiType = UInt64
+    typealias SwiftType = RequestDigestSigner
+
+    public static func lift(_ handle: UInt64) throws -> RequestDigestSigner {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return RequestDigestSignerImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
+    }
+
+    public static func lower(_ value: RequestDigestSigner) -> UInt64 {
+         if let rustImpl = value as? RequestDigestSignerImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RequestDigestSigner {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: RequestDigestSigner, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRequestDigestSigner_lift(_ handle: UInt64) throws -> RequestDigestSigner {
+    return try FfiConverterTypeRequestDigestSigner.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRequestDigestSigner_lower(_ value: RequestDigestSigner) -> UInt64 {
+    return FfiConverterTypeRequestDigestSigner.lower(value)
+}
+
+
+
+
+
+
+/**
+ * Supplies authentication material before each WebSocket connection or reassignment.
+ *
+ * The host owns token acquisition, refresh, audience policy, and hardware-key lifecycle.
+ * It selects the audience when configuring the provider; `WalletKit` does not decode the
+ * token or receive the audience or key identifier. Preparing and signing share a 30-second
+ * deadline in the matcher.
+ */
+public protocol RequestIntegrityProvider: AnyObject, Sendable {
+    
+    /**
+     * Returns a usable token and its matching signer, reusing a cached token when valid.
+     *
+     * # Errors
+     * Returns [`RequestIntegrityError`] if an integrity session is unavailable.
+     */
+    func prepare() async throws  -> RequestIntegritySession
+    
+}
+/**
+ * Supplies authentication material before each WebSocket connection or reassignment.
+ *
+ * The host owns token acquisition, refresh, audience policy, and hardware-key lifecycle.
+ * It selects the audience when configuring the provider; `WalletKit` does not decode the
+ * token or receive the audience or key identifier. Preparing and signing share a 30-second
+ * deadline in the matcher.
+ */
+open class RequestIntegrityProviderImpl: RequestIntegrityProvider, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_requestintegrityprovider(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_requestintegrityprovider(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Returns a usable token and its matching signer, reusing a cached token when valid.
+     *
+     * # Errors
+     * Returns [`RequestIntegrityError`] if an integrity session is unavailable.
+     */
+open func prepare()async throws  -> RequestIntegritySession  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_requestintegrityprovider_prepare(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeRequestIntegritySession_lift,
+            errorHandler: FfiConverterTypeRequestIntegrityError_lift
+        )
+}
+    
+
+    
+}
+
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceRequestIntegrityProvider {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // Store the vtable directly.
+    static let vtable: UniffiVTableCallbackInterfaceRequestIntegrityProvider = UniffiVTableCallbackInterfaceRequestIntegrityProvider(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeRequestIntegrityProvider.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface RequestIntegrityProvider: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeRequestIntegrityProvider.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface RequestIntegrityProvider: handle missing in uniffiClone")
+            }
+        },
+        prepare: { (
+            uniffiHandle: UInt64,
+            uniffiFutureCallback: @escaping UniffiForeignFutureCompleteRustBuffer,
+            uniffiCallbackData: UInt64,
+            uniffiOutDroppedCallback: UnsafeMutablePointer<UniffiForeignFutureDroppedCallbackStruct>
+        ) in
+            let makeCall = {
+                () async throws -> RequestIntegritySession in
+                guard let uniffiObj = try? FfiConverterTypeRequestIntegrityProvider.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return try await uniffiObj.prepare(
+                )
+            }
+
+            let uniffiHandleSuccess = { (returnValue: RequestIntegritySession) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureResultRustBuffer(
+                        returnValue: FfiConverterTypeRequestIntegritySession_lower(returnValue),
+                        callStatus: RustCallStatus()
+                    )
+                )
+            }
+            let uniffiHandleError = { (statusCode, errorBuf) in
+                uniffiFutureCallback(
+                    uniffiCallbackData,
+                    UniffiForeignFutureResultRustBuffer(
+                        returnValue: RustBuffer.empty(),
+                        callStatus: RustCallStatus(code: statusCode, errorBuf: errorBuf)
+                    )
+                )
+            }
+            uniffiTraitInterfaceCallAsyncWithError(
+                makeCall: makeCall,
+                handleSuccess: uniffiHandleSuccess,
+                handleError: uniffiHandleError,
+                lowerError: FfiConverterTypeRequestIntegrityError_lower,
+                droppedCallback: uniffiOutDroppedCallback
+            )
+        }
+    )
+
+    // Rust stores this pointer for future callback invocations, so it must live
+    // for the process lifetime (not just for the init function call).
+    //
+    // `nonisolated(unsafe)` is needed under Swift 6 strict concurrency.
+    // This is safe because the pointee is initialized once during static init
+    // and never mutated by either side of the FFI.  Its fields are C function pointers.
+    nonisolated(unsafe) static let vtablePtr: UnsafePointer<UniffiVTableCallbackInterfaceRequestIntegrityProvider> = {
+        let ptr = UnsafeMutablePointer<UniffiVTableCallbackInterfaceRequestIntegrityProvider>.allocate(capacity: 1)
+        ptr.initialize(to: vtable)
+        return UnsafePointer(ptr)
+    }()
+}
+
+private func uniffiCallbackInitRequestIntegrityProvider() {
+    uniffi_walletkit_core_fn_init_callback_vtable_requestintegrityprovider(UniffiCallbackInterfaceRequestIntegrityProvider.vtablePtr)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRequestIntegrityProvider: FfiConverter {
+    fileprivate static let handleMap = UniffiHandleMap<RequestIntegrityProvider>()
+
+    typealias FfiType = UInt64
+    typealias SwiftType = RequestIntegrityProvider
+
+    public static func lift(_ handle: UInt64) throws -> RequestIntegrityProvider {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return RequestIntegrityProviderImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
+    }
+
+    public static func lower(_ value: RequestIntegrityProvider) -> UInt64 {
+         if let rustImpl = value as? RequestIntegrityProviderImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RequestIntegrityProvider {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: RequestIntegrityProvider, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRequestIntegrityProvider_lift(_ handle: UInt64) throws -> RequestIntegrityProvider {
+    return try FfiConverterTypeRequestIntegrityProvider.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRequestIntegrityProvider_lower(_ value: RequestIntegrityProvider) -> UInt64 {
+    return FfiConverterTypeRequestIntegrityProvider.lower(value)
+}
+
+
+
+
+
+
+/**
  * Paths for credential storage artifacts under `<root>/worldid`.
  */
 public protocol StoragePathsProtocol: AnyObject, Sendable {
@@ -8455,7 +9123,8 @@ public struct ActivityEntry: Equatable, Hashable {
      */
     public var outcome: ActivityOutcome
     /**
-     * The credentials which produced an output proof for the request.
+     * The set of issuer schema ids whose credentials produced an output proof
+     * for the request. Order is not significant; duplicates are dropped.
      */
     public var issuerSchemaIds: [UInt64]
     /**
@@ -8488,7 +9157,8 @@ public struct ActivityEntry: Equatable, Hashable {
          * The result of the activity.
          */outcome: ActivityOutcome, 
         /**
-         * The credentials which produced an output proof for the request.
+         * The set of issuer schema ids whose credentials produced an output proof
+         * for the request. Order is not significant; duplicates are dropped.
          */issuerSchemaIds: [UInt64], 
         /**
          * Present only when `outcome` is `Failed`.
@@ -8617,54 +9287,6 @@ public func FfiConverterTypeActivityMetadata_lift(_ buf: RustBuffer) throws -> A
 #endif
 public func FfiConverterTypeActivityMetadata_lower(_ value: ActivityMetadata) -> RustBuffer {
     return FfiConverterTypeActivityMetadata.lower(value)
-}
-
-
-/**
- * Filtering/sorting options for [`super::CredentialStore::list_activities`].
- */
-public struct ActivityQuery: Equatable, Hashable {
-
-    // Default memberwise initializers are never public by default, so we
-    // declare one manually.
-    public init() {
-    }
-
-    
-
-    
-}
-
-#if compiler(>=6)
-extension ActivityQuery: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeActivityQuery: FfiConverterRustBuffer {
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ActivityQuery {
-        return
-            ActivityQuery()
-    }
-
-    public static func write(_ value: ActivityQuery, into buf: inout [UInt8]) {
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeActivityQuery_lift(_ buf: RustBuffer) throws -> ActivityQuery {
-    return try FfiConverterTypeActivityQuery.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeActivityQuery_lower(_ value: ActivityQuery) -> RustBuffer {
-    return FfiConverterTypeActivityQuery.lower(value)
 }
 
 
@@ -9398,6 +10020,89 @@ public func FfiConverterTypeReplayGuardResult_lift(_ buf: RustBuffer) throws -> 
 #endif
 public func FfiConverterTypeReplayGuardResult_lower(_ value: ReplayGuardResult) -> RustBuffer {
     return FfiConverterTypeReplayGuardResult.lower(value)
+}
+
+
+/**
+ * A token and the signer pinned to the exact key certified by that token.
+ *
+ * The provider must create the pair atomically so a later key rotation cannot mix them.
+ * An already-returned signer must keep using its captured key. The host adapts its native
+ * session to these callbacks without passing private-key material or other SDK callback types.
+ */
+public struct RequestIntegritySession {
+    /**
+     * A valid integrity token for the host-selected Flamingo audience.
+     */
+    public var token: String
+    /**
+     * Encoding expected from the native signer.
+     */
+    public var platform: RequestIntegrityPlatform
+    /**
+     * A signer capturing the matching hardware key and native signing context.
+     */
+    public var signer: RequestDigestSigner
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * A valid integrity token for the host-selected Flamingo audience.
+         */token: String, 
+        /**
+         * Encoding expected from the native signer.
+         */platform: RequestIntegrityPlatform, 
+        /**
+         * A signer capturing the matching hardware key and native signing context.
+         */signer: RequestDigestSigner) {
+        self.token = token
+        self.platform = platform
+        self.signer = signer
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension RequestIntegritySession: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRequestIntegritySession: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RequestIntegritySession {
+        return
+            try RequestIntegritySession(
+                token: FfiConverterString.read(from: &buf), 
+                platform: FfiConverterTypeRequestIntegrityPlatform.read(from: &buf), 
+                signer: FfiConverterTypeRequestDigestSigner.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RequestIntegritySession, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.token, into: &buf)
+        FfiConverterTypeRequestIntegrityPlatform.write(value.platform, into: &buf)
+        FfiConverterTypeRequestDigestSigner.write(value.signer, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRequestIntegritySession_lift(_ buf: RustBuffer) throws -> RequestIntegritySession {
+    return try FfiConverterTypeRequestIntegritySession.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRequestIntegritySession_lower(_ value: RequestIntegritySession) -> RustBuffer {
+    return FfiConverterTypeRequestIntegritySession.lower(value)
 }
 
 
@@ -10210,6 +10915,11 @@ enum FlamingoError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError 
     case Configuration(String
     )
     /**
+     * Preparing the integrity token or signing the request failed.
+     */
+    case RequestIntegrity(RequestIntegrityError
+    )
+    /**
      * The host returned a machine-readable service error.
      */
     case Service(
@@ -10306,26 +11016,29 @@ public struct FfiConverterTypeFlamingoError: FfiConverterRustBuffer {
         case 2: return .Configuration(
             try FfiConverterString.read(from: &buf)
             )
-        case 3: return .Service(
+        case 3: return .RequestIntegrity(
+            try FfiConverterTypeRequestIntegrityError.read(from: &buf)
+            )
+        case 4: return .Service(
             code: try FfiConverterString.read(from: &buf), 
             allowRetry: try FfiConverterBool.read(from: &buf)
             )
-        case 4: return .Timeout
-        case 5: return .Transport(
+        case 5: return .Timeout
+        case 6: return .Transport(
             details: try FfiConverterString.read(from: &buf)
             )
-        case 6: return .InvalidResponse(
+        case 7: return .InvalidResponse(
             stage: try FfiConverterTypeFlamingoResponseStage.read(from: &buf)
             )
-        case 7: return .Attestation(
+        case 8: return .Attestation(
             details: try FfiConverterString.read(from: &buf)
             )
-        case 8: return .Channel(
+        case 9: return .Channel(
             details: try FfiConverterString.read(from: &buf)
             )
-        case 9: return .InvalidSigningKey
-        case 10: return .StatementInvalid
-        case 11: return .ReassignmentRequired
+        case 10: return .InvalidSigningKey
+        case 11: return .StatementInvalid
+        case 12: return .ReassignmentRequired
 
          default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -10351,46 +11064,51 @@ public struct FfiConverterTypeFlamingoError: FfiConverterRustBuffer {
             FfiConverterString.write(v1, into: &buf)
             
         
-        case let .Service(code,allowRetry):
+        case let .RequestIntegrity(v1):
             writeInt(&buf, Int32(3))
+            FfiConverterTypeRequestIntegrityError.write(v1, into: &buf)
+            
+        
+        case let .Service(code,allowRetry):
+            writeInt(&buf, Int32(4))
             FfiConverterString.write(code, into: &buf)
             FfiConverterBool.write(allowRetry, into: &buf)
             
         
         case .Timeout:
-            writeInt(&buf, Int32(4))
+            writeInt(&buf, Int32(5))
         
         
         case let .Transport(details):
-            writeInt(&buf, Int32(5))
+            writeInt(&buf, Int32(6))
             FfiConverterString.write(details, into: &buf)
             
         
         case let .InvalidResponse(stage):
-            writeInt(&buf, Int32(6))
+            writeInt(&buf, Int32(7))
             FfiConverterTypeFlamingoResponseStage.write(stage, into: &buf)
             
         
         case let .Attestation(details):
-            writeInt(&buf, Int32(7))
-            FfiConverterString.write(details, into: &buf)
-            
-        
-        case let .Channel(details):
             writeInt(&buf, Int32(8))
             FfiConverterString.write(details, into: &buf)
             
         
-        case .InvalidSigningKey:
+        case let .Channel(details):
             writeInt(&buf, Int32(9))
+            FfiConverterString.write(details, into: &buf)
+            
         
-        
-        case .StatementInvalid:
+        case .InvalidSigningKey:
             writeInt(&buf, Int32(10))
         
         
-        case .ReassignmentRequired:
+        case .StatementInvalid:
             writeInt(&buf, Int32(11))
+        
+        
+        case .ReassignmentRequired:
+            writeInt(&buf, Int32(12))
         
         }
     }
@@ -12516,6 +13234,194 @@ public func FfiConverterTypeReplayGuardKind_lower(_ value: ReplayGuardKind) -> R
 
 
 /**
+ * Request-integrity failures without token, key, or native diagnostic contents.
+ */
+public 
+enum RequestIntegrityError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+    
+    
+    /**
+     * The host could not prepare an integrity session.
+     */
+    case Unavailable
+    /**
+     * The prepared session contains an unusable token.
+     */
+    case InvalidSession
+    /**
+     * The native signer failed or returned an empty signature.
+     */
+    case SigningFailed
+    /**
+     * A host callback threw an unexpected exception.
+     */
+    case CallbackFailed
+    /**
+     * Preparing or signing exceeded the authentication deadline.
+     */
+    case TimedOut
+
+    
+
+    
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
+}
+
+#if compiler(>=6)
+extension RequestIntegrityError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRequestIntegrityError: FfiConverterRustBuffer {
+    typealias SwiftType = RequestIntegrityError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RequestIntegrityError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .Unavailable
+        case 2: return .InvalidSession
+        case 3: return .SigningFailed
+        case 4: return .CallbackFailed
+        case 5: return .TimedOut
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: RequestIntegrityError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case .Unavailable:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .InvalidSession:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .SigningFailed:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .CallbackFailed:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .TimedOut:
+            writeInt(&buf, Int32(5))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRequestIntegrityError_lift(_ buf: RustBuffer) throws -> RequestIntegrityError {
+    return try FfiConverterTypeRequestIntegrityError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRequestIntegrityError_lower(_ value: RequestIntegrityError) -> RustBuffer {
+    return FfiConverterTypeRequestIntegrityError.lower(value)
+}
+
+
+/**
+ * The platform determines the native signature encoding.
+ */
+
+public enum RequestIntegrityPlatform: Equatable, Hashable {
+    
+    /**
+     * An App Attest assertion encoded as CBOR.
+     */
+    case ios
+    /**
+     * An Android Keystore ECDSA signature encoded as DER.
+     */
+    case android
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension RequestIntegrityPlatform: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRequestIntegrityPlatform: FfiConverterRustBuffer {
+    typealias SwiftType = RequestIntegrityPlatform
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RequestIntegrityPlatform {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .ios
+        
+        case 2: return .android
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: RequestIntegrityPlatform, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .ios:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .android:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRequestIntegrityPlatform_lift(_ buf: RustBuffer) throws -> RequestIntegrityPlatform {
+    return try FfiConverterTypeRequestIntegrityPlatform.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRequestIntegrityPlatform_lower(_ value: RequestIntegrityPlatform) -> RustBuffer {
+    return FfiConverterTypeRequestIntegrityPlatform.lower(value)
+}
+
+
+
+/**
  * Errors raised by credential storage primitives.
  */
 public 
@@ -13923,6 +14829,96 @@ fileprivate func uniffiFutureContinuationCallback(handle: UInt64, pollResult: In
         print("uniffiFutureContinuationCallback invalid handle")
     }
 }
+private func uniffiTraitInterfaceCallAsync<T>(
+    makeCall: @escaping () async throws -> T,
+    handleSuccess: @escaping (T) -> (),
+    handleError: @escaping (Int8, RustBuffer) -> (),
+    droppedCallback: UnsafeMutablePointer<UniffiForeignFutureDroppedCallbackStruct>
+) {
+    let task = Task {
+        // Note: it's important we call either `handleSuccess` or `handleError` exactly once.  Each
+        // call consumes an Arc reference, which means there should be no possibility of a double
+        // call.  The following code is structured so that will will never call both `handleSuccess`
+        // and `handleError`, even in the face of weird errors.
+        //
+        // On platforms that need extra machinery to make C-ABI calls, like JNA or ctypes, it's
+        // possible that we fail to make either call.  However, it doesn't seem like this is
+        // possible on Swift since swift can just make the C call directly.
+        var callResult: T
+        do {
+            callResult = try await makeCall()
+        } catch {
+            handleError(CALL_UNEXPECTED_ERROR, FfiConverterString.lower(String(describing: error)))
+            return
+        }
+        handleSuccess(callResult)
+    }
+    let handle = UNIFFI_FOREIGN_FUTURE_HANDLE_MAP.insert(obj: task)
+    droppedCallback.pointee = UniffiForeignFutureDroppedCallbackStruct(
+        handle: handle,
+        free: uniffiForeignFutureDroppedCallback
+    )
+}
+
+private func uniffiTraitInterfaceCallAsyncWithError<T, E>(
+    makeCall: @escaping () async throws -> T,
+    handleSuccess: @escaping (T) -> (),
+    handleError: @escaping (Int8, RustBuffer) -> (),
+    lowerError: @escaping (E) -> RustBuffer,
+    droppedCallback: UnsafeMutablePointer<UniffiForeignFutureDroppedCallbackStruct>
+) {
+    let task = Task {
+        // See the note in uniffiTraitInterfaceCallAsync for details on `handleSuccess` and
+        // `handleError`.
+        var callResult: T
+        do {
+            callResult = try await makeCall()
+        } catch let error as E {
+            handleError(CALL_ERROR, lowerError(error))
+            return
+        } catch {
+            handleError(CALL_UNEXPECTED_ERROR, FfiConverterString.lower(String(describing: error)))
+            return
+        }
+        handleSuccess(callResult)
+    }
+    let handle = UNIFFI_FOREIGN_FUTURE_HANDLE_MAP.insert(obj: task)
+    droppedCallback.pointee = UniffiForeignFutureDroppedCallbackStruct(
+        handle: handle,
+        free: uniffiForeignFutureDroppedCallback
+    )
+}
+
+// Borrow the callback handle map implementation to store foreign future handles
+// TODO: consolidate the handle-map code (https://github.com/mozilla/uniffi-rs/pull/1823)
+fileprivate let UNIFFI_FOREIGN_FUTURE_HANDLE_MAP = UniffiHandleMap<UniffiForeignFutureTask>()
+
+// Protocol for tasks that handle foreign futures.
+//
+// Defining a protocol allows all tasks to be stored in the same handle map.  This can't be done
+// with the task object itself, since has generic parameters.
+fileprivate protocol UniffiForeignFutureTask {
+    func cancel()
+}
+
+extension Task: UniffiForeignFutureTask {}
+
+private func uniffiForeignFutureDroppedCallback(handle: UInt64) {
+    do {
+        let task = try UNIFFI_FOREIGN_FUTURE_HANDLE_MAP.remove(handle: handle)
+        // Set the cancellation flag on the task.  If it's still running, the code can check the
+        // cancellation flag or call `Task.checkCancellation()`.  If the task has completed, this is
+        // a no-op.
+        task.cancel()
+    } catch {
+        print("uniffiForeignFutureDroppedCallback: handle missing from handlemap")
+    }
+}
+
+// For testing
+public func uniffiForeignFutureHandleCountWalletkitCore() -> Int {
+    UNIFFI_FOREIGN_FUTURE_HANDLE_MAP.count
+}
 /**
  * Derives recovery data from a 32-byte seed.
  *
@@ -14170,13 +15166,19 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_flamingomatcher_dangerously_skip_measurements() != 65148) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_flamingomatcher_perform_match() != 18981) {
+    if (uniffi_walletkit_core_checksum_method_flamingomatcher_perform_match() != 21138) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_flamingomatcher_with_headers() != 61271) {
+    if (uniffi_walletkit_core_checksum_method_flamingomatcher_with_headers() != 64974) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_flamingomatcher_with_measurements() != 63635) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_requestdigestsigner_sign_digest() != 33739) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_requestintegrityprovider_prepare() != 10115) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_verifiedmatchtoken_match_coefficient() != 18614) {
@@ -14254,7 +15256,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_credentialstore_init() != 11999) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_list_activities() != 22038) {
+    if (uniffi_walletkit_core_checksum_method_credentialstore_list_activities() != 32455) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_credentialstore_list_credentials() != 52779) {
@@ -14336,6 +15338,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_vaultchangedlistener_on_vault_changed() != 22872) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_activityquery_with_issuer_schema_id() != 8438) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_useragent_header_value() != 31714) {
@@ -14431,7 +15436,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_constructor_fieldelement_try_from_hex_string() != 24521) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_flamingomatcher_new() != 33163) {
+    if (uniffi_walletkit_core_checksum_constructor_flamingomatcher_new() != 50618) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_constructor_flamingomatcher_new_attested() != 18379) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_recoverybindingmanager_new() != 37272) {
@@ -14453,6 +15461,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_storagepaths_from_root() != 25339) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_constructor_activityquery_new() != 54360) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_useragentbuilder_new() != 55058) {
@@ -14490,6 +15501,8 @@ private let initializationResult: InitializationResult = {
     uniffiCallbackInitAtomicBlobStore()
     uniffiCallbackInitDeviceKeystore()
     uniffiCallbackInitLogger()
+    uniffiCallbackInitRequestDigestSigner()
+    uniffiCallbackInitRequestIntegrityProvider()
     uniffiCallbackInitStorageProvider()
     uniffiCallbackInitVaultChangedListener()
     return InitializationResult.ok

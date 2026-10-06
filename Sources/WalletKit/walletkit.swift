@@ -3102,17 +3102,25 @@ public protocol CredentialStoreProtocol: AnyObject, Sendable {
     /**
      * Permanently destroys all credential storage data.
      *
-     * This removes the encryption key envelope, the vault database, and the
-     * cache database. After this call the store is left in an uninitialized
-     * state — any subsequent operation (other than re-initialization) will
-     * return [`StorageError::NotInitialized`].
-     *
      * Intended for use when the user logs out or deletes their account.
+     *
+     * For a store opened from a keystore and blob store, this removes the
+     * encryption key envelope, then the vault and cache databases on a best-effort
+     * basis (deleting the envelope already makes them unreadable). The store is
+     * left uninitialized: any later operation other than re-initialization
+     * returns [`StorageError::NotInitialized`].
+     *
+     * For a store opened with a supplied key ([`Self::with_keys`]) there is no
+     * envelope, so the databases must actually be deleted. The store also drops its
+     * key reference: this handle can no longer be initialized, and reopening needs
+     * a new store. Discarding the host's own copy of the key is up to the host.
      *
      * # Errors
      *
-     * Returns an error if the storage lock cannot be acquired or the key
-     * envelope cannot be deleted from the blob store.
+     * Returns an error if the storage lock cannot be acquired or the key envelope
+     * cannot be deleted from the blob store. For a supplied-key store, also
+     * returns [`StorageError::VaultDb`] or [`StorageError::CacheDb`] if a database
+     * file cannot be deleted.
      */
     func destroyStorage() throws 
     
@@ -3415,17 +3423,25 @@ open func deleteCredential(credentialId: UInt64)throws   {try rustCallWithError(
     /**
      * Permanently destroys all credential storage data.
      *
-     * This removes the encryption key envelope, the vault database, and the
-     * cache database. After this call the store is left in an uninitialized
-     * state — any subsequent operation (other than re-initialization) will
-     * return [`StorageError::NotInitialized`].
-     *
      * Intended for use when the user logs out or deletes their account.
+     *
+     * For a store opened from a keystore and blob store, this removes the
+     * encryption key envelope, then the vault and cache databases on a best-effort
+     * basis (deleting the envelope already makes them unreadable). The store is
+     * left uninitialized: any later operation other than re-initialization
+     * returns [`StorageError::NotInitialized`].
+     *
+     * For a store opened with a supplied key ([`Self::with_keys`]) there is no
+     * envelope, so the databases must actually be deleted. The store also drops its
+     * key reference: this handle can no longer be initialized, and reopening needs
+     * a new store. Discarding the host's own copy of the key is up to the host.
      *
      * # Errors
      *
-     * Returns an error if the storage lock cannot be acquired or the key
-     * envelope cannot be deleted from the blob store.
+     * Returns an error if the storage lock cannot be acquired or the key envelope
+     * cannot be deleted from the blob store. For a supplied-key store, also
+     * returns [`StorageError::VaultDb`] or [`StorageError::CacheDb`] if a database
+     * file cannot be deleted.
      */
 open func destroyStorage()throws   {try rustCallWithError(FfiConverterTypeStorageError_lift) {
         uniffiCallStatus in
@@ -15241,7 +15257,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_credentialstore_delete_credential() != 64758) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_credentialstore_destroy_storage() != 32113) {
+    if (uniffi_walletkit_core_checksum_method_credentialstore_destroy_storage() != 20193) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_credentialstore_export_vault_for_backup() != 38118) {

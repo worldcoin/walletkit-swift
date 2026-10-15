@@ -909,9 +909,13 @@ public func FfiConverterTypeActivityChangedListener_lower(_ value: ActivityChang
 public protocol ActivityQueryProtocol: AnyObject, Sendable {
     
     /**
-     * Restricts results to entries that include this issuer schema id.
+     * Restricts results to entries that include any of these issuer schema
+     * ids, replacing any previously set ids.
+     *
+     * The ids are a set: order and duplicates are ignored. An empty set
+     * matches no entries.
      */
-    func withIssuerSchemaId(issuerSchemaId: UInt64)  -> ActivityQuery
+    func withIssuerSchemaIds(issuerSchemaIds: Set<UInt64>)  -> ActivityQuery
     
 }
 /**
@@ -986,14 +990,18 @@ public convenience init() {
 
     
     /**
-     * Restricts results to entries that include this issuer schema id.
+     * Restricts results to entries that include any of these issuer schema
+     * ids, replacing any previously set ids.
+     *
+     * The ids are a set: order and duplicates are ignored. An empty set
+     * matches no entries.
      */
-open func withIssuerSchemaId(issuerSchemaId: UInt64) -> ActivityQuery  {
+open func withIssuerSchemaIds(issuerSchemaIds: Set<UInt64>) -> ActivityQuery  {
     return try!  FfiConverterTypeActivityQuery_lift(try! rustCall() {
         uniffiCallStatus in
-    uniffi_walletkit_core_fn_method_activityquery_with_issuer_schema_id(
+    uniffi_walletkit_core_fn_method_activityquery_with_issuer_schema_ids(
             self.uniffiCloneHandle(),
-        FfiConverterUInt64.lower(issuerSchemaId),uniffiCallStatus
+        FfiConverterSetUInt64.lower(issuerSchemaIds),uniffiCallStatus
     )
 })
 }
@@ -3090,6 +3098,16 @@ public protocol CredentialStoreProtocol: AnyObject, Sendable {
     func dangerDeleteAllCredentials() throws  -> UInt64
     
     /**
+     * Deletes the activities identified by `entry_ids`, returning the
+     * number of activities that were removed.
+     *
+     * # Errors
+     *
+     * Returns an error if the store is not initialized or the query fails.
+     */
+    func deleteActivities(entryIds: [UInt64]) throws  -> UInt64
+    
+    /**
      * Deletes a credential by ID.
      *
      * # Errors
@@ -3399,6 +3417,24 @@ open func dangerDeleteAllCredentials()throws  -> UInt64  {
         uniffiCallStatus in
     uniffi_walletkit_core_fn_method_credentialstore_danger_delete_all_credentials(
             self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Deletes the activities identified by `entry_ids`, returning the
+     * number of activities that were removed.
+     *
+     * # Errors
+     *
+     * Returns an error if the store is not initialized or the query fails.
+     */
+open func deleteActivities(entryIds: [UInt64])throws  -> UInt64  {
+    return try  FfiConverterUInt64.lift(try rustCallWithError(FfiConverterTypeStorageError_lift) {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_credentialstore_delete_activities(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceUInt64.lower(entryIds),uniffiCallStatus
     )
 })
 }
@@ -6482,8 +6518,8 @@ public protocol RecoveryBindingManagerProtocol: AnyObject, Sendable {
      * * `leaf_index` — The authenticator's leaf index in the World ID Merkle tree.
      * # Errors
      *
-     * * [`WalletKitError::NetworkError`] — non-success HTTP status.
-     * * [`WalletKitError::SerializationError`] — response body is not valid JSON.
+     * * [`WalletKitError::NetworkError`] — non-success HTTP status, request failure,
+     * response-body read failure, or JSON decode failure.
      * * [`WalletKitError::RecoveryBindingDoesNotExist`] — HTTP 404 (no binding found).
      */
     func getRecoveryBinding(leafIndex: UInt64) async throws  -> RecoveryBinding
@@ -6638,8 +6674,8 @@ open func bindRecoveryAgent(authenticator: Authenticator, sub: String, recoveryA
      * * `leaf_index` — The authenticator's leaf index in the World ID Merkle tree.
      * # Errors
      *
-     * * [`WalletKitError::NetworkError`] — non-success HTTP status.
-     * * [`WalletKitError::SerializationError`] — response body is not valid JSON.
+     * * [`WalletKitError::NetworkError`] — non-success HTTP status, request failure,
+     * response-body read failure, or JSON decode failure.
      * * [`WalletKitError::RecoveryBindingDoesNotExist`] — HTTP 404 (no binding found).
      */
 open func getRecoveryBinding(leafIndex: UInt64)async throws  -> RecoveryBinding  {
@@ -14750,6 +14786,30 @@ fileprivate struct FfiConverterDictionaryStringString: FfiConverterRustBuffer {
     }
 }
 
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSetUInt64: FfiConverterRustBuffer {
+    public static func write(_ value: Set<UInt64>, into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterUInt64.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Set<UInt64> {
+        let len: Int32 = try readInt(&buf)
+        var set = Set<UInt64>()
+        set.reserveCapacity(Int(len))
+        for _ in 0..<len {
+            let item = try FfiConverterUInt64.read(from: &buf)
+            set.insert(item)
+        }
+        return set
+    }
+}
+
 
 
 
@@ -15203,7 +15263,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_bind_recovery_agent() != 11385) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_get_recovery_binding() != 26936) {
+    if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_get_recovery_binding() != 10060) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_unbind_recovery_agent() != 40826) {
@@ -15252,6 +15312,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_credentialstore_danger_delete_all_credentials() != 16456) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_credentialstore_delete_activities() != 36579) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_credentialstore_delete_credential() != 64758) {
@@ -15356,7 +15419,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_vaultchangedlistener_on_vault_changed() != 22872) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_activityquery_with_issuer_schema_id() != 8438) {
+    if (uniffi_walletkit_core_checksum_method_activityquery_with_issuer_schema_ids() != 4415) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_useragent_header_value() != 31714) {

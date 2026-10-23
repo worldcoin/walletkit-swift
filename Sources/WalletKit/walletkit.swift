@@ -536,38 +536,6 @@ fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-fileprivate struct FfiConverterFloat: FfiConverterPrimitive {
-    typealias FfiType = Float
-    typealias SwiftType = Float
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Float {
-        return try lift(readFloat(&buf))
-    }
-
-    public static func write(_ value: Float, into buf: inout [UInt8]) {
-        writeFloat(&buf, lower(value))
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-fileprivate struct FfiConverterDouble: FfiConverterPrimitive {
-    typealias FfiType = Double
-    typealias SwiftType = Double
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Double {
-        return try lift(readDouble(&buf))
-    }
-
-    public static func write(_ value: Double, into buf: inout [UInt8]) {
-        writeDouble(&buf, lower(value))
-    }
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
 fileprivate struct FfiConverterBool : FfiConverter {
     typealias FfiType = Int8
     typealias SwiftType = Bool
@@ -1922,6 +1890,77 @@ public static func initWithDefaults(seed: Data, rpcUrl: String?, environment: En
 }
     
     /**
+     * Initializes the Authenticator for `seed` on the account at `leaf_index`, with a JSON
+     * config.
+     *
+     * # Errors
+     * Will error if the provided seed is not valid or if the config is not valid.
+     */
+public static func initWithLeafIndex(seed: Data, leafIndex: UInt64, config: String, artifacts: WalletKitZkArtifactSource, store: CredentialStore)async throws  -> Authenticator  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_constructor_authenticator_init_with_leaf_index(FfiConverterData.lower(seed),FfiConverterUInt64.lower(leafIndex),FfiConverterString.lower(config),FfiConverterTypeWalletKitZkArtifactSource_lower(artifacts),FfiConverterTypeCredentialStore_lower(store)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_u64,
+            completeFunc: ffi_walletkit_core_rust_future_complete_u64,
+            freeFunc: ffi_walletkit_core_rust_future_free_u64,
+            liftFunc: FfiConverterTypeAuthenticator_lift,
+            errorHandler: FfiConverterTypeWalletKitError_lift
+        )
+}
+    
+    /**
+     * Initializes the Authenticator for `seed` on the account at `leaf_index`, with SDK defaults.
+     *
+     * A Proving Authenticator (WIP-104) has no management key registered on-chain, so
+     * [`Authenticator::init_with_defaults`] cannot find its account. The host keeps the
+     * `leaf_index` it was registered on and initializes it with this on every start. An Admin
+     * Authenticator whose `leaf_index` is known can use it too.
+     *
+     * # Errors
+     * See `CoreAuthenticator::init_with_leaf_index` for potential errors.
+     */
+public static func initWithLeafIndexAndDefaults(seed: Data, leafIndex: UInt64, rpcUrl: String?, environment: Environment, region: Region?, artifacts: WalletKitZkArtifactSource, store: CredentialStore)async throws  -> Authenticator  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_constructor_authenticator_init_with_leaf_index_and_defaults(FfiConverterData.lower(seed),FfiConverterUInt64.lower(leafIndex),FfiConverterOptionString.lower(rpcUrl),FfiConverterTypeEnvironment_lower(environment),FfiConverterOptionTypeRegion.lower(region),FfiConverterTypeWalletKitZkArtifactSource_lower(artifacts),FfiConverterTypeCredentialStore_lower(store)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_u64,
+            completeFunc: ffi_walletkit_core_rust_future_complete_u64,
+            freeFunc: ffi_walletkit_core_rust_future_free_u64,
+            liftFunc: FfiConverterTypeAuthenticator_lift,
+            errorHandler: FfiConverterTypeWalletKitError_lift
+        )
+}
+    
+    /**
+     * Initializes the Authenticator for `seed` on the account at `leaf_index`, using SDK defaults
+     * routed through the OHTTP relay. Opt-in alternative to
+     * [`Authenticator::init_with_leaf_index_and_defaults`].
+     *
+     * # Errors
+     * See `CoreAuthenticator::init_with_leaf_index` for potential errors.
+     */
+public static func initWithLeafIndexAndOhttpDefaults(seed: Data, leafIndex: UInt64, rpcUrl: String?, environment: Environment, region: Region?, artifacts: WalletKitZkArtifactSource, store: CredentialStore)async throws  -> Authenticator  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_constructor_authenticator_init_with_leaf_index_and_ohttp_defaults(FfiConverterData.lower(seed),FfiConverterUInt64.lower(leafIndex),FfiConverterOptionString.lower(rpcUrl),FfiConverterTypeEnvironment_lower(environment),FfiConverterOptionTypeRegion.lower(region),FfiConverterTypeWalletKitZkArtifactSource_lower(artifacts),FfiConverterTypeCredentialStore_lower(store)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_u64,
+            completeFunc: ffi_walletkit_core_rust_future_complete_u64,
+            freeFunc: ffi_walletkit_core_rust_future_free_u64,
+            liftFunc: FfiConverterTypeAuthenticator_lift,
+            errorHandler: FfiConverterTypeWalletKitError_lift
+        )
+}
+    
+    /**
      * Initializes a new Authenticator from a seed using SDK defaults routed
      * through the OHTTP relay. Opt-in alternative to
      * [`Authenticator::init_with_defaults`].
@@ -2490,6 +2529,179 @@ public func FfiConverterTypeAuthenticator_lower(_ value: Authenticator) -> UInt6
 
 
 /**
+ * A client for one bridge deployment.
+ *
+ * Transport failures, `429` and server errors are retried with bounded backoff and jitter.
+ * Reading a request or a response is single-use, so a retry after a lost reply can find the
+ * message gone.
+ */
+public protocol BridgeClientProtocol: AnyObject, Sendable {
+    
+    /**
+     * Returns the domain of the bridge deployment, as written into a Pairing URI.
+     */
+    func domain()  -> String
+    
+}
+/**
+ * A client for one bridge deployment.
+ *
+ * Transport failures, `429` and server errors are retried with bounded backoff and jitter.
+ * Reading a request or a response is single-use, so a retry after a lost reply can find the
+ * message gone.
+ */
+open class BridgeClient: BridgeClientProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_bridgeclient(self.handle, $0) }
+    }
+    /**
+     * Creates a client for the bridge at `https://{domain}`.
+     *
+     * # Errors
+     *
+     * Returns an error if `domain` is not a valid bridge domain or the TLS backend cannot be
+     * initialized.
+     */
+public convenience init(domain: String)throws  {
+    let handle =
+        try rustCallWithError(FfiConverterTypeBridgeError_lift) {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_constructor_bridgeclient_new(
+        FfiConverterString.lower(domain),uniffiCallStatus
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_bridgeclient(handle, $0) }
+    }
+
+    
+    /**
+     * Creates a client that reaches the bridge named `domain` at `base_url`, e.g. a local
+     * deployment in tests.
+     *
+     * # Errors
+     *
+     * Returns an error if `domain` is not a valid bridge domain, `base_url` cannot be a base
+     * for the bridge routes, or the TLS backend cannot be initialized.
+     */
+public static func withBaseUrl(domain: String, baseUrl: String)throws  -> BridgeClient  {
+    return try  FfiConverterTypeBridgeClient_lift(try rustCallWithError(FfiConverterTypeBridgeError_lift) {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_constructor_bridgeclient_with_base_url(
+        FfiConverterString.lower(domain),
+        FfiConverterString.lower(baseUrl),uniffiCallStatus
+    )
+})
+}
+    
+
+    
+    /**
+     * Returns the domain of the bridge deployment, as written into a Pairing URI.
+     */
+open func domain() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_bridgeclient_domain(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeBridgeClient: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = BridgeClient
+
+    public static func lift(_ handle: UInt64) throws -> BridgeClient {
+        return BridgeClient(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: BridgeClient) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> BridgeClient {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: BridgeClient, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBridgeClient_lift(_ handle: UInt64) throws -> BridgeClient {
+    return try FfiConverterTypeBridgeClient.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBridgeClient_lower(_ value: BridgeClient) -> UInt64 {
+    return FfiConverterTypeBridgeClient.lower(value)
+}
+
+
+
+
+
+
+/**
  * A crate specific source for ZK Artifacts
  *
  * Loads ZK Artifacts from embedded data & caches the resulting artifacts (for the Query &
@@ -2787,6 +2999,320 @@ public func FfiConverterTypeCachingZkArtifactsInner_lift(_ handle: UInt64) throw
 #endif
 public func FfiConverterTypeCachingZkArtifactsInner_lower(_ value: CachingZkArtifactsInner) -> UInt64 {
     return FfiConverterTypeCachingZkArtifactsInner.lower(value)
+}
+
+
+
+
+
+
+/**
+ * A registration request whose account state was checked, waiting for the user's decision.
+ */
+public protocol CheckedRegistrationProtocol: AnyObject, Sendable {
+    
+    /**
+     * Ends the registration with `internal_error`, e.g. because the platform's user
+     * verification failed or is unavailable (WIP-109 §3.7.3). Returns whether the answer was
+     * delivered.
+     *
+     * # Errors
+     *
+     * Returns [`ApproverError::AlreadyHandled`] if the registration was already decided.
+     */
+    func abort() async throws  -> Bool
+    
+    /**
+     * Carries out the registration and sends the response (WIP-109 §3.7.4 and §3.7.5).
+     *
+     * Call it only after the user consented and the platform's user verification succeeded,
+     * also for an authenticator that is already registered (WIP-109 §3.7.3). `vault` is the
+     * `CredentialStore::export_vault_for_backup` output, only if the user chose to share it; a
+     * vault over [`MAX_VAULT_SIZE`] is left out. `authenticators` names the account's other
+     * authenticators.
+     *
+     * Unless the authenticator is already registered, this submits `InsertAuthenticator` and
+     * tracks it until it is final on-chain or definitively failed. An insertion is never
+     * retried. If its outcome is still unknown when the response is due, the answer is
+     * `outcome_unknown`. If less than two minutes are left, nothing is submitted and the answer
+     * is `internal_error`.
+     *
+     * # Errors
+     *
+     * Returns [`ApproverError::ApproverMismatch`] if `approver` is not the authenticator that
+     * [`IncomingRegistration::check`] checked, or [`ApproverError::AlreadyHandled`] if the
+     * registration was already decided.
+     */
+    func approve(approver: Authenticator, vault: Data?, authenticators: [KnownAuthenticator]) async throws  -> ApprovalOutcome
+    
+    /**
+     * Returns the class the new authenticator asks for.
+     */
+    func `class`()  -> RequestedClass
+    
+    /**
+     * Returns the name the new authenticator asks for. It is untrusted and must be displayed as
+     * such.
+     */
+    func name()  -> String?
+    
+    /**
+     * Returns how the registration will be carried out.
+     */
+    func plan()  -> RegistrationPlan
+    
+    /**
+     * Declines with `user_rejected`, because the user rejected the request or cancelled the
+     * platform's user verification (WIP-109 §3.7.3). Returns whether the answer was delivered.
+     *
+     * # Errors
+     *
+     * Returns [`ApproverError::AlreadyHandled`] if the registration was already decided.
+     */
+    func reject() async throws  -> Bool
+    
+    /**
+     * Returns how many seconds are left until the response is due, e.g. to show how long the
+     * user has to decide.
+     */
+    func timeRemainingSecs()  -> UInt64
+    
+}
+/**
+ * A registration request whose account state was checked, waiting for the user's decision.
+ */
+open class CheckedRegistration: CheckedRegistrationProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_checkedregistration(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_checkedregistration(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Ends the registration with `internal_error`, e.g. because the platform's user
+     * verification failed or is unavailable (WIP-109 §3.7.3). Returns whether the answer was
+     * delivered.
+     *
+     * # Errors
+     *
+     * Returns [`ApproverError::AlreadyHandled`] if the registration was already decided.
+     */
+open func abort()async throws  -> Bool  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_checkedregistration_abort(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_i8,
+            completeFunc: ffi_walletkit_core_rust_future_complete_i8,
+            freeFunc: ffi_walletkit_core_rust_future_free_i8,
+            liftFunc: FfiConverterBool.lift,
+            errorHandler: FfiConverterTypeApproverError_lift
+        )
+}
+    
+    /**
+     * Carries out the registration and sends the response (WIP-109 §3.7.4 and §3.7.5).
+     *
+     * Call it only after the user consented and the platform's user verification succeeded,
+     * also for an authenticator that is already registered (WIP-109 §3.7.3). `vault` is the
+     * `CredentialStore::export_vault_for_backup` output, only if the user chose to share it; a
+     * vault over [`MAX_VAULT_SIZE`] is left out. `authenticators` names the account's other
+     * authenticators.
+     *
+     * Unless the authenticator is already registered, this submits `InsertAuthenticator` and
+     * tracks it until it is final on-chain or definitively failed. An insertion is never
+     * retried. If its outcome is still unknown when the response is due, the answer is
+     * `outcome_unknown`. If less than two minutes are left, nothing is submitted and the answer
+     * is `internal_error`.
+     *
+     * # Errors
+     *
+     * Returns [`ApproverError::ApproverMismatch`] if `approver` is not the authenticator that
+     * [`IncomingRegistration::check`] checked, or [`ApproverError::AlreadyHandled`] if the
+     * registration was already decided.
+     */
+open func approve(approver: Authenticator, vault: Data?, authenticators: [KnownAuthenticator])async throws  -> ApprovalOutcome  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_checkedregistration_approve(
+                        self.uniffiCloneHandle(),FfiConverterTypeAuthenticator_lower(approver),FfiConverterOptionData.lower(vault),FfiConverterSequenceTypeKnownAuthenticator.lower(authenticators)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeApprovalOutcome_lift,
+            errorHandler: FfiConverterTypeApproverError_lift
+        )
+}
+    
+    /**
+     * Returns the class the new authenticator asks for.
+     */
+open func `class`() -> RequestedClass  {
+    return try!  FfiConverterTypeRequestedClass_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_checkedregistration_class(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Returns the name the new authenticator asks for. It is untrusted and must be displayed as
+     * such.
+     */
+open func name() -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_checkedregistration_name(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Returns how the registration will be carried out.
+     */
+open func plan() -> RegistrationPlan  {
+    return try!  FfiConverterTypeRegistrationPlan_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_checkedregistration_plan(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Declines with `user_rejected`, because the user rejected the request or cancelled the
+     * platform's user verification (WIP-109 §3.7.3). Returns whether the answer was delivered.
+     *
+     * # Errors
+     *
+     * Returns [`ApproverError::AlreadyHandled`] if the registration was already decided.
+     */
+open func reject()async throws  -> Bool  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_checkedregistration_reject(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_i8,
+            completeFunc: ffi_walletkit_core_rust_future_complete_i8,
+            freeFunc: ffi_walletkit_core_rust_future_free_i8,
+            liftFunc: FfiConverterBool.lift,
+            errorHandler: FfiConverterTypeApproverError_lift
+        )
+}
+    
+    /**
+     * Returns how many seconds are left until the response is due, e.g. to show how long the
+     * user has to decide.
+     */
+open func timeRemainingSecs() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_checkedregistration_time_remaining_secs(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeCheckedRegistration: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = CheckedRegistration
+
+    public static func lift(_ handle: UInt64) throws -> CheckedRegistration {
+        return CheckedRegistration(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: CheckedRegistration) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> CheckedRegistration {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: CheckedRegistration, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCheckedRegistration_lift(_ handle: UInt64) throws -> CheckedRegistration {
+    return try FfiConverterTypeCheckedRegistration.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeCheckedRegistration_lower(_ value: CheckedRegistration) -> UInt64 {
+    return FfiConverterTypeCheckedRegistration.lower(value)
 }
 
 
@@ -4420,7 +4946,168 @@ public func FfiConverterTypeFieldElement_lower(_ value: FieldElement) -> UInt64 
 
 
 /**
- * A simple wrapper around of `FlamingoVerifierClient`. Flamingo Verifier is a cloud TEE service for attested embedding generation and comparison.
+ * The release manifests of one Engine Provider that `WalletKit` trusts.
+ *
+ * Built from the provider's metadata file (`/.well-known/world-id-engine.json`). The host decides
+ * which provider to trust and how to obtain its metadata, for example by fetching it from a
+ * pinned domain or bundling it with the app. Only listed manifests whose signature verifies
+ * under an `active` release key of the same metadata are kept. Removing a manifest or retiring
+ * or revoking its key takes effect with the next metadata the host supplies.
+ */
+public protocol FlamingoEngineProviderProtocol: AnyObject, Sendable {
+    
+    /**
+     * The provider's stable identifier.
+     */
+    func providerId()  -> String
+    
+}
+/**
+ * The release manifests of one Engine Provider that `WalletKit` trusts.
+ *
+ * Built from the provider's metadata file (`/.well-known/world-id-engine.json`). The host decides
+ * which provider to trust and how to obtain its metadata, for example by fetching it from a
+ * pinned domain or bundling it with the app. Only listed manifests whose signature verifies
+ * under an `active` release key of the same metadata are kept. Removing a manifest or retiring
+ * or revoking its key takes effect with the next metadata the host supplies.
+ */
+open class FlamingoEngineProvider: FlamingoEngineProviderProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_flamingoengineprovider(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_flamingoengineprovider(handle, $0) }
+    }
+
+    
+    /**
+     * Parses an Engine Provider metadata file and verifies its listed release manifests.
+     *
+     * # Errors
+     *
+     * Returns [`FlamingoError::Configuration`] if the metadata is not a version 1 metadata file,
+     * or if none of its listed manifests verifies under one of its active release keys.
+     */
+public static func fromMetadata(metadataJson: Data)throws  -> FlamingoEngineProvider  {
+    return try  FfiConverterTypeFlamingoEngineProvider_lift(try rustCallWithError(FfiConverterTypeFlamingoError_lift) {
+        uniffiCallStatus in
+        FfiConverterByRefBytes.lower(metadataJson) { metadataJsonFb in
+    uniffi_walletkit_core_fn_constructor_flamingoengineprovider_from_metadata(
+        metadataJsonFb,uniffiCallStatus
+    )
+        }
+})
+}
+    
+
+    
+    /**
+     * The provider's stable identifier.
+     */
+open func providerId() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_flamingoengineprovider_provider_id(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFlamingoEngineProvider: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = FlamingoEngineProvider
+
+    public static func lift(_ handle: UInt64) throws -> FlamingoEngineProvider {
+        return FlamingoEngineProvider(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: FlamingoEngineProvider) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FlamingoEngineProvider {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: FlamingoEngineProvider, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoEngineProvider_lift(_ handle: UInt64) throws -> FlamingoEngineProvider {
+    return try FfiConverterTypeFlamingoEngineProvider.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoEngineProvider_lower(_ value: FlamingoEngineProvider) -> UInt64 {
+    return FfiConverterTypeFlamingoEngineProvider.lower(value)
+}
+
+
+
+
+
+
+/**
+ * A client of the Flamingo Verifier, a cloud TEE service that compares images or embeddings and
+ * signs a Flamingo Token over the comparison.
  */
 public protocol FlamingoMatcherProtocol: AnyObject, Sendable {
     
@@ -4441,25 +5128,41 @@ public protocol FlamingoMatcherProtocol: AnyObject, Sendable {
     func dangerouslySkipMeasurements() throws  -> FlamingoMatcher
     
     /**
-     * Performs a attested 3-way embedding match and returns the outcome and optional worker diagnostics.
+     * Sends a WIP-201 request to the Verifier and returns the outcome and optional Engine
+     * diagnostics.
      *
-     * Prepares an integrity session and signs the WebSocket upgrade before the match flow:
+     * Prepares an integrity session and signs the WebSocket upgrade before the request flow:
      *
      * - Opens a WebSocket session and verifies the enclave assignment delivered on it, including
      * PCRs unless explicitly bypassed.
-     * - Encrypts and sends the match inputs over the same session using the enclave's attested
+     * - Chooses the first offered Engine configuration that the trusted Engine Provider signed,
+     * that has at most 8 response slots, and that the Verifier has loaded.
+     * - Encrypts and sends the request over the same session using the enclave's attested
      * public key.
-     * - Decrypts the result and, on success, verifies the token's signature and signing-key attestation.
+     * - Decrypts the result and, on success, verifies the Flamingo Token's signature, its
+     * signing-key attestation and that its claims match the request.
+     *
+     * If the Verifier asks for a fresh assignment, the request is sent once more over a new
+     * session, choosing its configuration again.
      *
      * # Errors
      *
      * Returns [`FlamingoError::InvalidInput`] before making a network request when a caller value
-     * is unusable, or [`FlamingoError::Configuration`] if neither trusted measurements
-     * nor the explicit measurement bypass has been configured.
+     * is unusable, or [`FlamingoError::Configuration`] if no Engine Provider, or neither trusted
+     * measurements nor the explicit measurement bypass, has been configured.
+     * Returns [`FlamingoError::NoSupportedEngine`] without sending the request when no offered
+     * configuration is available on the assigned Verifier.
      * Native authentication failures are returned as [`FlamingoError::RequestIntegrity`].
      * Service, transport and verification failures are returned as typed [`FlamingoError`] variants.
      */
     func performMatch(request: FlamingoMatchRequest) async throws  -> FlamingoMatchOutcome
+    
+    /**
+     * Returns a new instance that trusts the release manifests of `engine_provider`.
+     *
+     * Every request runs an Engine configuration whose release manifest this provider signed.
+     */
+    func withEngineProvider(engineProvider: FlamingoEngineProvider)  -> FlamingoMatcher
     
     /**
      * Returns a new instance with these default headers, replacing any previously configured set.
@@ -4489,7 +5192,8 @@ public protocol FlamingoMatcherProtocol: AnyObject, Sendable {
     
 }
 /**
- * A simple wrapper around of `FlamingoVerifierClient`. Flamingo Verifier is a cloud TEE service for attested embedding generation and comparison.
+ * A client of the Flamingo Verifier, a cloud TEE service that compares images or embeddings and
+ * signs a Flamingo Token over the comparison.
  */
 open class FlamingoMatcher: FlamingoMatcherProtocol, @unchecked Sendable {
     fileprivate let handle: UInt64
@@ -4533,7 +5237,8 @@ open class FlamingoMatcher: FlamingoMatcherProtocol, @unchecked Sendable {
     /**
      * Creates a legacy matcher; supply app-token authentication with [`Self::with_headers`].
      *
-     * Configure enclave measurements with [`Self::with_measurements`].
+     * Configure enclave measurements with [`Self::with_measurements`] and the trusted Engine
+     * Provider with [`Self::with_engine_provider`].
      *
      * # Errors
      *
@@ -4565,7 +5270,8 @@ public convenience init(hostUrl: String)throws  {
      * Creates a matcher that signs every connection with a host-provided integrity session.
      *
      * Select this mode before connecting. Authentication failures never fall back to legacy.
-     * Configure enclave measurements with [`Self::with_measurements`].
+     * Configure enclave measurements with [`Self::with_measurements`] and the trusted Engine
+     * Provider with [`Self::with_engine_provider`].
      *
      * # Errors
      * Returns [`FlamingoError::Configuration`] unless the URL is HTTPS without credentials
@@ -4607,21 +5313,30 @@ open func dangerouslySkipMeasurements()throws  -> FlamingoMatcher  {
 }
     
     /**
-     * Performs a attested 3-way embedding match and returns the outcome and optional worker diagnostics.
+     * Sends a WIP-201 request to the Verifier and returns the outcome and optional Engine
+     * diagnostics.
      *
-     * Prepares an integrity session and signs the WebSocket upgrade before the match flow:
+     * Prepares an integrity session and signs the WebSocket upgrade before the request flow:
      *
      * - Opens a WebSocket session and verifies the enclave assignment delivered on it, including
      * PCRs unless explicitly bypassed.
-     * - Encrypts and sends the match inputs over the same session using the enclave's attested
+     * - Chooses the first offered Engine configuration that the trusted Engine Provider signed,
+     * that has at most 8 response slots, and that the Verifier has loaded.
+     * - Encrypts and sends the request over the same session using the enclave's attested
      * public key.
-     * - Decrypts the result and, on success, verifies the token's signature and signing-key attestation.
+     * - Decrypts the result and, on success, verifies the Flamingo Token's signature, its
+     * signing-key attestation and that its claims match the request.
+     *
+     * If the Verifier asks for a fresh assignment, the request is sent once more over a new
+     * session, choosing its configuration again.
      *
      * # Errors
      *
      * Returns [`FlamingoError::InvalidInput`] before making a network request when a caller value
-     * is unusable, or [`FlamingoError::Configuration`] if neither trusted measurements
-     * nor the explicit measurement bypass has been configured.
+     * is unusable, or [`FlamingoError::Configuration`] if no Engine Provider, or neither trusted
+     * measurements nor the explicit measurement bypass, has been configured.
+     * Returns [`FlamingoError::NoSupportedEngine`] without sending the request when no offered
+     * configuration is available on the assigned Verifier.
      * Native authentication failures are returned as [`FlamingoError::RequestIntegrity`].
      * Service, transport and verification failures are returned as typed [`FlamingoError`] variants.
      */
@@ -4639,6 +5354,21 @@ open func performMatch(request: FlamingoMatchRequest)async throws  -> FlamingoMa
             liftFunc: FfiConverterTypeFlamingoMatchOutcome_lift,
             errorHandler: FfiConverterTypeFlamingoError_lift
         )
+}
+    
+    /**
+     * Returns a new instance that trusts the release manifests of `engine_provider`.
+     *
+     * Every request runs an Engine configuration whose release manifest this provider signed.
+     */
+open func withEngineProvider(engineProvider: FlamingoEngineProvider) -> FlamingoMatcher  {
+    return try!  FfiConverterTypeFlamingoMatcher_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_flamingomatcher_with_engine_provider(
+            self.uniffiCloneHandle(),
+        FfiConverterTypeFlamingoEngineProvider_lower(engineProvider),uniffiCallStatus
+    )
+})
 }
     
     /**
@@ -4726,6 +5456,247 @@ public func FfiConverterTypeFlamingoMatcher_lift(_ handle: UInt64) throws -> Fla
 #endif
 public func FfiConverterTypeFlamingoMatcher_lower(_ value: FlamingoMatcher) -> UInt64 {
     return FfiConverterTypeFlamingoMatcher.lower(value)
+}
+
+
+
+
+
+
+/**
+ * An authenticated, valid registration request.
+ */
+public protocol IncomingRegistrationProtocol: AnyObject, Sendable {
+    
+    /**
+     * Reads the account state of `approver` and plans the registration (WIP-109 §3.7.2).
+     *
+     * # Errors
+     *
+     * Returns [`ApproverError::Refused`] after answering with the reason if `approver` is not an
+     * Admin Authenticator of its account (`not_authorized`), the key or address is registered
+     * differently on the account (`authenticator_conflict`), there is no free slot
+     * (`max_authenticators_reached`), or the account state cannot be read in time
+     * (`internal_error`), and [`ApproverError::AlreadyHandled`] if the request was already
+     * checked or rejected.
+     */
+    func check(approver: Authenticator) async throws  -> CheckedRegistration
+    
+    /**
+     * Returns the class the new authenticator asks for.
+     */
+    func `class`()  -> RequestedClass
+    
+    /**
+     * Returns the name the new authenticator asks for. It is untrusted and must be displayed as
+     * such.
+     */
+    func name()  -> String?
+    
+    /**
+     * Refuses a request whose `name` the host does not accept, with `invalid_name`. Returns
+     * whether the answer was delivered.
+     *
+     * # Errors
+     *
+     * Returns [`ApproverError::AlreadyHandled`] if the request was already checked or rejected.
+     */
+    func rejectName() async throws  -> Bool
+    
+    /**
+     * Returns how many seconds are left until the response is due.
+     */
+    func timeRemainingSecs()  -> UInt64
+    
+}
+/**
+ * An authenticated, valid registration request.
+ */
+open class IncomingRegistration: IncomingRegistrationProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_incomingregistration(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_incomingregistration(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Reads the account state of `approver` and plans the registration (WIP-109 §3.7.2).
+     *
+     * # Errors
+     *
+     * Returns [`ApproverError::Refused`] after answering with the reason if `approver` is not an
+     * Admin Authenticator of its account (`not_authorized`), the key or address is registered
+     * differently on the account (`authenticator_conflict`), there is no free slot
+     * (`max_authenticators_reached`), or the account state cannot be read in time
+     * (`internal_error`), and [`ApproverError::AlreadyHandled`] if the request was already
+     * checked or rejected.
+     */
+open func check(approver: Authenticator)async throws  -> CheckedRegistration  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_incomingregistration_check(
+                        self.uniffiCloneHandle(),FfiConverterTypeAuthenticator_lower(approver)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_u64,
+            completeFunc: ffi_walletkit_core_rust_future_complete_u64,
+            freeFunc: ffi_walletkit_core_rust_future_free_u64,
+            liftFunc: FfiConverterTypeCheckedRegistration_lift,
+            errorHandler: FfiConverterTypeApproverError_lift
+        )
+}
+    
+    /**
+     * Returns the class the new authenticator asks for.
+     */
+open func `class`() -> RequestedClass  {
+    return try!  FfiConverterTypeRequestedClass_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_incomingregistration_class(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Returns the name the new authenticator asks for. It is untrusted and must be displayed as
+     * such.
+     */
+open func name() -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_incomingregistration_name(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Refuses a request whose `name` the host does not accept, with `invalid_name`. Returns
+     * whether the answer was delivered.
+     *
+     * # Errors
+     *
+     * Returns [`ApproverError::AlreadyHandled`] if the request was already checked or rejected.
+     */
+open func rejectName()async throws  -> Bool  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_incomingregistration_reject_name(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_i8,
+            completeFunc: ffi_walletkit_core_rust_future_complete_i8,
+            freeFunc: ffi_walletkit_core_rust_future_free_i8,
+            liftFunc: FfiConverterBool.lift,
+            errorHandler: FfiConverterTypeApproverError_lift
+        )
+}
+    
+    /**
+     * Returns how many seconds are left until the response is due.
+     */
+open func timeRemainingSecs() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_incomingregistration_time_remaining_secs(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeIncomingRegistration: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = IncomingRegistration
+
+    public static func lift(_ handle: UInt64) throws -> IncomingRegistration {
+        return IncomingRegistration(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: IncomingRegistration) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> IncomingRegistration {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: IncomingRegistration, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeIncomingRegistration_lift(_ handle: UInt64) throws -> IncomingRegistration {
+    return try FfiConverterTypeIncomingRegistration.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeIncomingRegistration_lower(_ value: IncomingRegistration) -> UInt64 {
+    return FfiConverterTypeIncomingRegistration.lower(value)
 }
 
 
@@ -5564,6 +6535,187 @@ public func FfiConverterTypeOwnershipProof_lift(_ handle: UInt64) throws -> Owne
 #endif
 public func FfiConverterTypeOwnershipProof_lower(_ value: OwnershipProof) -> UInt64 {
     return FfiConverterTypeOwnershipProof.lower(value)
+}
+
+
+
+
+
+
+/**
+ * An encrypted request taken from the bridge, waiting for code entry (WIP-109 §3.7.1).
+ */
+public protocol PendingRegistrationProtocol: AnyObject, Sendable {
+    
+    /**
+     * Authenticates the request with `code`, then validates it (WIP-109 §3.7.1).
+     *
+     * This blocks while it derives the transport key with Argon2id (64 MiB). In a browser, call
+     * it from a Web Worker.
+     *
+     * # Errors
+     *
+     * [`ApproverError::MalformedCode`] and [`ApproverError::IncorrectCode`] let the user enter
+     * the code again; only an incorrect code uses one of the three attempts. Every other error
+     * ends the session.
+     */
+    func authenticate(code: String) async throws  -> IncomingRegistration
+    
+}
+/**
+ * An encrypted request taken from the bridge, waiting for code entry (WIP-109 §3.7.1).
+ */
+open class PendingRegistration: PendingRegistrationProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_pendingregistration(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_pendingregistration(handle, $0) }
+    }
+
+    
+    /**
+     * Takes the encrypted request named by the scanned Pairing URI from its bridge, before the
+     * host prompts for the code. Never log the URI.
+     *
+     * The URI's bridge must be one of `allowed_bridges`. To contact another bridge, the host
+     * must first get the user's confirmation, then pass a client for it (WIP-109 §3.4).
+     *
+     * # Errors
+     *
+     * Returns [`ApproverError::InvalidPairingUri`], [`ApproverError::BridgeNotAllowed`],
+     * [`ApproverError::Expired`] for a used or expired URI, or a bridge error.
+     */
+public static func receive(uri: String, allowedBridges: [BridgeClient])async throws  -> PendingRegistration  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_constructor_pendingregistration_receive(FfiConverterString.lower(uri),FfiConverterSequenceTypeBridgeClient.lower(allowedBridges)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_u64,
+            completeFunc: ffi_walletkit_core_rust_future_complete_u64,
+            freeFunc: ffi_walletkit_core_rust_future_free_u64,
+            liftFunc: FfiConverterTypePendingRegistration_lift,
+            errorHandler: FfiConverterTypeApproverError_lift
+        )
+}
+    
+
+    
+    /**
+     * Authenticates the request with `code`, then validates it (WIP-109 §3.7.1).
+     *
+     * This blocks while it derives the transport key with Argon2id (64 MiB). In a browser, call
+     * it from a Web Worker.
+     *
+     * # Errors
+     *
+     * [`ApproverError::MalformedCode`] and [`ApproverError::IncorrectCode`] let the user enter
+     * the code again; only an incorrect code uses one of the three attempts. Every other error
+     * ends the session.
+     */
+open func authenticate(code: String)async throws  -> IncomingRegistration  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_pendingregistration_authenticate(
+                        self.uniffiCloneHandle(),FfiConverterString.lower(code)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_u64,
+            completeFunc: ffi_walletkit_core_rust_future_complete_u64,
+            freeFunc: ffi_walletkit_core_rust_future_free_u64,
+            liftFunc: FfiConverterTypeIncomingRegistration_lift,
+            errorHandler: FfiConverterTypeApproverError_lift
+        )
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePendingRegistration: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = PendingRegistration
+
+    public static func lift(_ handle: UInt64) throws -> PendingRegistration {
+        return PendingRegistration(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: PendingRegistration) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PendingRegistration {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: PendingRegistration, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePendingRegistration_lift(_ handle: UInt64) throws -> PendingRegistration {
+    return try FfiConverterTypePendingRegistration.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePendingRegistration_lower(_ value: PendingRegistration) -> UInt64 {
+    return FfiConverterTypePendingRegistration.lower(value)
 }
 
 
@@ -6766,6 +7918,547 @@ public func FfiConverterTypeRecoveryBindingManager_lift(_ handle: UInt64) throws
 #endif
 public func FfiConverterTypeRecoveryBindingManager_lower(_ value: RecoveryBindingManager) -> UInt64 {
     return FfiConverterTypeRecoveryBindingManager.lower(value)
+}
+
+
+
+
+
+
+/**
+ * The Requesting Authenticator's side of one registration session.
+ *
+ * [`start`](Self::start) publishes the request. Show [`pairing_uri`](Self::pairing_uri) as a
+ * QR code and link, and [`poll`](Self::poll) the bridge, e.g. every second; once the request
+ * was taken, show [`pairing_code`](Self::pairing_code) instead. Check a successful result with
+ * [`verify`](Self::verify).
+ *
+ * A new session after an expired or failed one must use the **same seed**, so that an
+ * insertion that already happened is found instead of repeated.
+ */
+public protocol RegistrationRequesterProtocol: AnyObject, Sendable {
+    
+    /**
+     * Ends the session and discards its secrets.
+     */
+    func cancel() 
+    
+    /**
+     * Returns the pairing code once the Approving Authenticator took the request, until the
+     * session ends. Show it only on this device. Never log it.
+     */
+    func pairingCode()  -> String?
+    
+    /**
+     * Returns the Pairing URI until the Approving Authenticator takes the request or the
+     * session ends. Never log it.
+     */
+    func pairingUri()  -> String?
+    
+    /**
+     * Checks the bridge once for the response. A completed response ends the session.
+     *
+     * # Errors
+     *
+     * Returns [`RequesterError::Bridge`] if the bridge cannot be reached (leaving the session
+     * open until it expires so a later poll can retry), or [`RequesterError::Transport`] /
+     * [`RequesterError::MalformedResponse`] if the completed response cannot be opened or does
+     * not answer this session's request (which ends the session).
+     */
+    func poll() async throws  -> RequesterStatus
+    
+    /**
+     * Checks a successful `result` against the registry with a JSON `config`, and returns the
+     * new authenticator.
+     *
+     * # Errors
+     *
+     * See [`Self::verify_with_config`] for potential errors.
+     */
+    func verify(seed: Data, result: RegistrationResult, config: String, artifacts: WalletKitZkArtifactSource, store: CredentialStore) async throws  -> Registered
+    
+    /**
+     * Checks a successful `result` against the registry using SDK defaults, and returns the new
+     * authenticator.
+     *
+     * # Errors
+     *
+     * See [`Self::verify_with_config`] for potential errors.
+     */
+    func verifyWithDefaults(seed: Data, result: RegistrationResult, rpcUrl: String?, environment: Environment, region: Region?, artifacts: WalletKitZkArtifactSource, store: CredentialStore) async throws  -> Registered
+    
+    /**
+     * Checks a successful `result` against the registry using SDK defaults routed through the
+     * OHTTP relay, and returns the new authenticator.
+     *
+     * # Errors
+     *
+     * See [`Self::verify_with_config`] for potential errors.
+     */
+    func verifyWithOhttpDefaults(seed: Data, result: RegistrationResult, rpcUrl: String?, environment: Environment, region: Region?, artifacts: WalletKitZkArtifactSource, store: CredentialStore) async throws  -> Registered
+    
+}
+/**
+ * The Requesting Authenticator's side of one registration session.
+ *
+ * [`start`](Self::start) publishes the request. Show [`pairing_uri`](Self::pairing_uri) as a
+ * QR code and link, and [`poll`](Self::poll) the bridge, e.g. every second; once the request
+ * was taken, show [`pairing_code`](Self::pairing_code) instead. Check a successful result with
+ * [`verify`](Self::verify).
+ *
+ * A new session after an expired or failed one must use the **same seed**, so that an
+ * insertion that already happened is found instead of repeated.
+ */
+open class RegistrationRequester: RegistrationRequesterProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_registrationrequester(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_registrationrequester(handle, $0) }
+    }
+
+    
+    /**
+     * Starts a session for the authenticator derived from `seed` and publishes its request on
+     * `bridge`, whose domain goes into the Pairing URI.
+     *
+     * This blocks while it derives the transport key with Argon2id (64 MiB). In a browser, call
+     * it from a Web Worker.
+     *
+     * # Errors
+     *
+     * Returns an error if the seed or name is invalid, the CSPRNG is unavailable, the request
+     * cannot be encoded or encrypted, or the bridge does not store it.
+     */
+public static func start(seed: Data, `class`: RequestedClass, name: String?, bridge: BridgeClient)async throws  -> RegistrationRequester  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_constructor_registrationrequester_start(FfiConverterData.lower(seed),FfiConverterTypeRequestedClass_lower(`class`),FfiConverterOptionString.lower(name),FfiConverterTypeBridgeClient_lower(bridge)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_u64,
+            completeFunc: ffi_walletkit_core_rust_future_complete_u64,
+            freeFunc: ffi_walletkit_core_rust_future_free_u64,
+            liftFunc: FfiConverterTypeRegistrationRequester_lift,
+            errorHandler: FfiConverterTypeRequesterError_lift
+        )
+}
+    
+
+    
+    /**
+     * Ends the session and discards its secrets.
+     */
+open func cancel()  {try! rustCall() {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_registrationrequester_cancel(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+}
+}
+    
+    /**
+     * Returns the pairing code once the Approving Authenticator took the request, until the
+     * session ends. Show it only on this device. Never log it.
+     */
+open func pairingCode() -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_registrationrequester_pairing_code(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Returns the Pairing URI until the Approving Authenticator takes the request or the
+     * session ends. Never log it.
+     */
+open func pairingUri() -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_registrationrequester_pairing_uri(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Checks the bridge once for the response. A completed response ends the session.
+     *
+     * # Errors
+     *
+     * Returns [`RequesterError::Bridge`] if the bridge cannot be reached (leaving the session
+     * open until it expires so a later poll can retry), or [`RequesterError::Transport`] /
+     * [`RequesterError::MalformedResponse`] if the completed response cannot be opened or does
+     * not answer this session's request (which ends the session).
+     */
+open func poll()async throws  -> RequesterStatus  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_registrationrequester_poll(
+                        self.uniffiCloneHandle()
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeRequesterStatus_lift,
+            errorHandler: FfiConverterTypeRequesterError_lift
+        )
+}
+    
+    /**
+     * Checks a successful `result` against the registry with a JSON `config`, and returns the
+     * new authenticator.
+     *
+     * # Errors
+     *
+     * See [`Self::verify_with_config`] for potential errors.
+     */
+open func verify(seed: Data, result: RegistrationResult, config: String, artifacts: WalletKitZkArtifactSource, store: CredentialStore)async throws  -> Registered  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_registrationrequester_verify(
+                        self.uniffiCloneHandle(),FfiConverterData.lower(seed),FfiConverterTypeRegistrationResult_lower(result),FfiConverterString.lower(config),FfiConverterTypeWalletKitZkArtifactSource_lower(artifacts),FfiConverterTypeCredentialStore_lower(store)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeRegistered_lift,
+            errorHandler: FfiConverterTypeRequesterError_lift
+        )
+}
+    
+    /**
+     * Checks a successful `result` against the registry using SDK defaults, and returns the new
+     * authenticator.
+     *
+     * # Errors
+     *
+     * See [`Self::verify_with_config`] for potential errors.
+     */
+open func verifyWithDefaults(seed: Data, result: RegistrationResult, rpcUrl: String?, environment: Environment, region: Region?, artifacts: WalletKitZkArtifactSource, store: CredentialStore)async throws  -> Registered  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_registrationrequester_verify_with_defaults(
+                        self.uniffiCloneHandle(),FfiConverterData.lower(seed),FfiConverterTypeRegistrationResult_lower(result),FfiConverterOptionString.lower(rpcUrl),FfiConverterTypeEnvironment_lower(environment),FfiConverterOptionTypeRegion.lower(region),FfiConverterTypeWalletKitZkArtifactSource_lower(artifacts),FfiConverterTypeCredentialStore_lower(store)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeRegistered_lift,
+            errorHandler: FfiConverterTypeRequesterError_lift
+        )
+}
+    
+    /**
+     * Checks a successful `result` against the registry using SDK defaults routed through the
+     * OHTTP relay, and returns the new authenticator.
+     *
+     * # Errors
+     *
+     * See [`Self::verify_with_config`] for potential errors.
+     */
+open func verifyWithOhttpDefaults(seed: Data, result: RegistrationResult, rpcUrl: String?, environment: Environment, region: Region?, artifacts: WalletKitZkArtifactSource, store: CredentialStore)async throws  -> Registered  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_registrationrequester_verify_with_ohttp_defaults(
+                        self.uniffiCloneHandle(),FfiConverterData.lower(seed),FfiConverterTypeRegistrationResult_lower(result),FfiConverterOptionString.lower(rpcUrl),FfiConverterTypeEnvironment_lower(environment),FfiConverterOptionTypeRegion.lower(region),FfiConverterTypeWalletKitZkArtifactSource_lower(artifacts),FfiConverterTypeCredentialStore_lower(store)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeRegistered_lift,
+            errorHandler: FfiConverterTypeRequesterError_lift
+        )
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRegistrationRequester: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = RegistrationRequester
+
+    public static func lift(_ handle: UInt64) throws -> RegistrationRequester {
+        return RegistrationRequester(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: RegistrationRequester) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RegistrationRequester {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: RegistrationRequester, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRegistrationRequester_lift(_ handle: UInt64) throws -> RegistrationRequester {
+    return try FfiConverterTypeRegistrationRequester.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRegistrationRequester_lower(_ value: RegistrationRequester) -> UInt64 {
+    return FfiConverterTypeRegistrationRequester.lower(value)
+}
+
+
+
+
+
+
+/**
+ * The result of a successful registration: where the new authenticator was inserted, and the
+ * credentials it needs to generate proofs.
+ */
+public protocol RegistrationResultProtocol: AnyObject, Sendable {
+    
+    /**
+     * Returns the names of the account's other authenticators known to the Approving
+     * Authenticator.
+     */
+    func authenticators()  -> [KnownAuthenticator]
+    
+    /**
+     * Returns whether the Approving Authenticator included a credential vault backup.
+     *
+     * The vault bytes themselves are returned in [`Registered::vault_backup`] only after
+     * [`RegistrationRequester::verify`](super::RegistrationRequester::verify) confirms the
+     * on-chain registration.
+     */
+    func hasVault()  -> Bool
+    
+    /**
+     * Returns the index of the account the authenticator was registered on.
+     */
+    func leafIndex()  -> UInt64
+    
+    /**
+     * Returns the slot the authenticator was inserted at.
+     */
+    func pubkeyId()  -> UInt32
+    
+}
+/**
+ * The result of a successful registration: where the new authenticator was inserted, and the
+ * credentials it needs to generate proofs.
+ */
+open class RegistrationResult: RegistrationResultProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_walletkit_core_fn_clone_registrationresult(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_walletkit_core_fn_free_registrationresult(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Returns the names of the account's other authenticators known to the Approving
+     * Authenticator.
+     */
+open func authenticators() -> [KnownAuthenticator]  {
+    return try!  FfiConverterSequenceTypeKnownAuthenticator.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_registrationresult_authenticators(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Returns whether the Approving Authenticator included a credential vault backup.
+     *
+     * The vault bytes themselves are returned in [`Registered::vault_backup`] only after
+     * [`RegistrationRequester::verify`](super::RegistrationRequester::verify) confirms the
+     * on-chain registration.
+     */
+open func hasVault() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_registrationresult_has_vault(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Returns the index of the account the authenticator was registered on.
+     */
+open func leafIndex() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_registrationresult_leaf_index(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Returns the slot the authenticator was inserted at.
+     */
+open func pubkeyId() -> UInt32  {
+    return try!  FfiConverterUInt32.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_registrationresult_pubkey_id(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRegistrationResult: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = RegistrationResult
+
+    public static func lift(_ handle: UInt64) throws -> RegistrationResult {
+        return RegistrationResult(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: RegistrationResult) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RegistrationResult {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: RegistrationResult, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRegistrationResult_lift(_ handle: UInt64) throws -> RegistrationResult {
+    return try FfiConverterTypeRegistrationResult.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRegistrationResult_lower(_ value: RegistrationResult) -> UInt64 {
+    return FfiConverterTypeRegistrationResult.lower(value)
 }
 
 
@@ -8605,29 +10298,25 @@ public func FfiConverterTypeVaultChangedListener_lower(_ value: VaultChangedList
 
 
 /**
- * A match token whose signing-key attestation and signature were verified.
+ * A Flamingo Token whose signing-key attestation, signature and claims were verified.
  *
- * Foreign callers receive an opaque handle. The token and signing-key attestation remain
- * together in Rust for proof generation and eventual relay of the attestation to the RP.
+ * The claims equal those the request implies: its `aud` and `nonce`, the hashes of the compared
+ * entries and the chosen Engine configuration. Foreign callers receive an opaque handle; the token
+ * and its signing-key attestation stay together in Rust for proof generation and for relaying the
+ * attestation to the RP.
  */
-public protocol VerifiedMatchTokenProtocol: AnyObject, Sendable {
-    
-    /**
-     * Operation-specific normalized similarity authenticated by the token.
-     * `DeepFace`: credential/live. `GrayBadge`: live/challenge.
-     *
-     * The other two comparison scores and the requested threshold are not in the token.
-     */
-    func matchCoefficient()  -> Float
+public protocol VerifiedFlamingoTokenProtocol: AnyObject, Sendable {
     
 }
 /**
- * A match token whose signing-key attestation and signature were verified.
+ * A Flamingo Token whose signing-key attestation, signature and claims were verified.
  *
- * Foreign callers receive an opaque handle. The token and signing-key attestation remain
- * together in Rust for proof generation and eventual relay of the attestation to the RP.
+ * The claims equal those the request implies: its `aud` and `nonce`, the hashes of the compared
+ * entries and the chosen Engine configuration. Foreign callers receive an opaque handle; the token
+ * and its signing-key attestation stay together in Rust for proof generation and for relaying the
+ * attestation to the RP.
  */
-open class VerifiedMatchToken: VerifiedMatchTokenProtocol, @unchecked Sendable {
+open class VerifiedFlamingoToken: VerifiedFlamingoTokenProtocol, @unchecked Sendable {
     fileprivate let handle: UInt64
 
     /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
@@ -8664,7 +10353,7 @@ open class VerifiedMatchToken: VerifiedMatchTokenProtocol, @unchecked Sendable {
     @_documentation(visibility: private)
 #endif
     public func uniffiCloneHandle() -> UInt64 {
-        return try! rustCall { uniffi_walletkit_core_fn_clone_verifiedmatchtoken(self.handle, $0) }
+        return try! rustCall { uniffi_walletkit_core_fn_clone_verifiedflamingotoken(self.handle, $0) }
     }
     // No primary constructor declared for this class.
 
@@ -8674,26 +10363,11 @@ open class VerifiedMatchToken: VerifiedMatchTokenProtocol, @unchecked Sendable {
             return
         }
 
-        try! rustCall { uniffi_walletkit_core_fn_free_verifiedmatchtoken(handle, $0) }
+        try! rustCall { uniffi_walletkit_core_fn_free_verifiedflamingotoken(handle, $0) }
     }
 
     
 
-    
-    /**
-     * Operation-specific normalized similarity authenticated by the token.
-     * `DeepFace`: credential/live. `GrayBadge`: live/challenge.
-     *
-     * The other two comparison scores and the requested threshold are not in the token.
-     */
-open func matchCoefficient() -> Float  {
-    return try!  FfiConverterFloat.lift(try! rustCall() {
-        uniffiCallStatus in
-    uniffi_walletkit_core_fn_method_verifiedmatchtoken_match_coefficient(
-            self.uniffiCloneHandle(),uniffiCallStatus
-    )
-})
-}
     
 
     
@@ -8703,24 +10377,24 @@ open func matchCoefficient() -> Float  {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public struct FfiConverterTypeVerifiedMatchToken: FfiConverter {
+public struct FfiConverterTypeVerifiedFlamingoToken: FfiConverter {
     typealias FfiType = UInt64
-    typealias SwiftType = VerifiedMatchToken
+    typealias SwiftType = VerifiedFlamingoToken
 
-    public static func lift(_ handle: UInt64) throws -> VerifiedMatchToken {
-        return VerifiedMatchToken(unsafeFromHandle: handle)
+    public static func lift(_ handle: UInt64) throws -> VerifiedFlamingoToken {
+        return VerifiedFlamingoToken(unsafeFromHandle: handle)
     }
 
-    public static func lower(_ value: VerifiedMatchToken) -> UInt64 {
+    public static func lower(_ value: VerifiedFlamingoToken) -> UInt64 {
         return value.uniffiCloneHandle()
     }
 
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VerifiedMatchToken {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> VerifiedFlamingoToken {
         let handle: UInt64 = try readInt(&buf)
         return try lift(handle)
     }
 
-    public static func write(_ value: VerifiedMatchToken, into buf: inout [UInt8]) {
+    public static func write(_ value: VerifiedFlamingoToken, into buf: inout [UInt8]) {
         writeInt(&buf, lower(value))
     }
 }
@@ -8729,15 +10403,15 @@ public struct FfiConverterTypeVerifiedMatchToken: FfiConverter {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeVerifiedMatchToken_lift(_ handle: UInt64) throws -> VerifiedMatchToken {
-    return try FfiConverterTypeVerifiedMatchToken.lift(handle)
+public func FfiConverterTypeVerifiedFlamingoToken_lift(_ handle: UInt64) throws -> VerifiedFlamingoToken {
+    return try FfiConverterTypeVerifiedFlamingoToken.lift(handle)
 }
 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
-public func FfiConverterTypeVerifiedMatchToken_lower(_ value: VerifiedMatchToken) -> UInt64 {
-    return FfiConverterTypeVerifiedMatchToken.lower(value)
+public func FfiConverterTypeVerifiedFlamingoToken_lower(_ value: VerifiedFlamingoToken) -> UInt64 {
+    return FfiConverterTypeVerifiedFlamingoToken.lower(value)
 }
 
 
@@ -9343,6 +11017,87 @@ public func FfiConverterTypeActivityMetadata_lower(_ value: ActivityMetadata) ->
 
 
 /**
+ * The result of [`CheckedRegistration::approve`](super::CheckedRegistration::approve).
+ */
+public struct ApprovalOutcome: Equatable, Hashable {
+    /**
+     * Whether the authenticator was registered.
+     */
+    public var result: ApprovalResult
+    /**
+     * Whether the vault was left out because it exceeds [`MAX_VAULT_SIZE`](super::MAX_VAULT_SIZE).
+     * The host must tell the user that the vault was not shared.
+     */
+    public var vaultOmitted: Bool
+    /**
+     * Whether the response was delivered.
+     */
+    public var delivered: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Whether the authenticator was registered.
+         */result: ApprovalResult, 
+        /**
+         * Whether the vault was left out because it exceeds [`MAX_VAULT_SIZE`](super::MAX_VAULT_SIZE).
+         * The host must tell the user that the vault was not shared.
+         */vaultOmitted: Bool, 
+        /**
+         * Whether the response was delivered.
+         */delivered: Bool) {
+        self.result = result
+        self.vaultOmitted = vaultOmitted
+        self.delivered = delivered
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ApprovalOutcome: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeApprovalOutcome: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ApprovalOutcome {
+        return
+            try ApprovalOutcome(
+                result: FfiConverterTypeApprovalResult.read(from: &buf), 
+                vaultOmitted: FfiConverterBool.read(from: &buf), 
+                delivered: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ApprovalOutcome, into buf: inout [UInt8]) {
+        FfiConverterTypeApprovalResult.write(value.result, into: &buf)
+        FfiConverterBool.write(value.vaultOmitted, into: &buf)
+        FfiConverterBool.write(value.delivered, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeApprovalOutcome_lift(_ buf: RustBuffer) throws -> ApprovalOutcome {
+    return try FfiConverterTypeApprovalOutcome.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeApprovalOutcome_lower(_ value: ApprovalOutcome) -> RustBuffer {
+    return FfiConverterTypeApprovalOutcome.lower(value)
+}
+
+
+/**
  * Check result for a single request item.
  */
 public struct CredentialConstraintsCheckItem: Equatable, Hashable {
@@ -9603,6 +11358,342 @@ public func FfiConverterTypeCredentialRecord_lift(_ buf: RustBuffer) throws -> C
 #endif
 public func FfiConverterTypeCredentialRecord_lower(_ value: CredentialRecord) -> RustBuffer {
     return FfiConverterTypeCredentialRecord.lower(value)
+}
+
+
+/**
+ * One Engine configuration a Relying Party accepts.
+ *
+ * The RP offers these tuples in order of preference. `WalletKit` runs the first one whose release
+ * manifest the trusted Engine Provider signed and the Verifier has loaded.
+ */
+public struct FlamingoEngineConfiguration: Equatable, Hashable {
+    /**
+     * `SHA-256` of the release manifest's JWS Payload, 32 bytes.
+     */
+    public var releaseHash: Data
+    /**
+     * Engine-defined pipeline, nonzero.
+     */
+    public var pipeline: UInt16
+    /**
+     * Matching strictness level defined by the release manifest.
+     */
+    public var matchStrictness: UInt8
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * `SHA-256` of the release manifest's JWS Payload, 32 bytes.
+         */releaseHash: Data, 
+        /**
+         * Engine-defined pipeline, nonzero.
+         */pipeline: UInt16, 
+        /**
+         * Matching strictness level defined by the release manifest.
+         */matchStrictness: UInt8) {
+        self.releaseHash = releaseHash
+        self.pipeline = pipeline
+        self.matchStrictness = matchStrictness
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FlamingoEngineConfiguration: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFlamingoEngineConfiguration: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FlamingoEngineConfiguration {
+        return
+            try FlamingoEngineConfiguration(
+                releaseHash: FfiConverterData.read(from: &buf), 
+                pipeline: FfiConverterUInt16.read(from: &buf), 
+                matchStrictness: FfiConverterUInt8.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FlamingoEngineConfiguration, into buf: inout [UInt8]) {
+        FfiConverterData.write(value.releaseHash, into: &buf)
+        FfiConverterUInt16.write(value.pipeline, into: &buf)
+        FfiConverterUInt8.write(value.matchStrictness, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoEngineConfiguration_lift(_ buf: RustBuffer) throws -> FlamingoEngineConfiguration {
+    return try FfiConverterTypeFlamingoEngineConfiguration.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoEngineConfiguration_lower(_ value: FlamingoEngineConfiguration) -> RustBuffer {
+    return FfiConverterTypeFlamingoEngineConfiguration.lower(value)
+}
+
+
+/**
+ * One Engine input.
+ */
+public struct FlamingoEntry: Equatable, Hashable {
+    /**
+     * An encoded image or an embedding.
+     */
+    public var data: Data
+    /**
+     * How the Engine reads `data`, at most 256 bytes; defined by the pipeline.
+     */
+    public var meta: Data
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * An encoded image or an embedding.
+         */data: Data, 
+        /**
+         * How the Engine reads `data`, at most 256 bytes; defined by the pipeline.
+         */meta: Data) {
+        self.data = data
+        self.meta = meta
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FlamingoEntry: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFlamingoEntry: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FlamingoEntry {
+        return
+            try FlamingoEntry(
+                data: FfiConverterData.read(from: &buf), 
+                meta: FfiConverterData.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FlamingoEntry, into buf: inout [UInt8]) {
+        FfiConverterData.write(value.data, into: &buf)
+        FfiConverterData.write(value.meta, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoEntry_lift(_ buf: RustBuffer) throws -> FlamingoEntry {
+    return try FfiConverterTypeFlamingoEntry.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoEntry_lower(_ value: FlamingoEntry) -> RustBuffer {
+    return FfiConverterTypeFlamingoEntry.lower(value)
+}
+
+
+/**
+ * A WIP-201 request: the Relying Party's binding and offer, and the Engine inputs.
+ *
+ * The Verifier interprets none of `entries`, `compare` or `hints`. The chosen pipeline gives each
+ * `compare` position its role, and its release manifest describes the layout. A Proof of Embedding
+ * Similarity (WIP-202) requires the Credential image, the live capture and the challenge at
+ * `compare` positions 0, 1 and 2.
+ *
+ * Entry buffers move into preparation; the selected payload is then encoded as canonical CBOR.
+ */
+public struct FlamingoMatchRequest {
+    /**
+     * The RP's `rpId`.
+     */
+    public var aud: FieldElement
+    /**
+     * The RP's single-use nonce; must be nonzero.
+     */
+    public var nonce: FieldElement
+    /**
+     * Engine configurations the RP accepts, most preferred first.
+     */
+    public var offeredConfigurations: [FlamingoEngineConfiguration]
+    /**
+     * Inputs to the Engine, at most 8.
+     */
+    public var entries: [FlamingoEntry]
+    /**
+     * Two to four distinct indices into `entries`; position `k` becomes `compared_entry_hash_k`.
+     */
+    public var compare: Data
+    /**
+     * Request-level Engine hints, at most 1 KiB.
+     */
+    public var hints: Data
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The RP's `rpId`.
+         */aud: FieldElement, 
+        /**
+         * The RP's single-use nonce; must be nonzero.
+         */nonce: FieldElement, 
+        /**
+         * Engine configurations the RP accepts, most preferred first.
+         */offeredConfigurations: [FlamingoEngineConfiguration], 
+        /**
+         * Inputs to the Engine, at most 8.
+         */entries: [FlamingoEntry], 
+        /**
+         * Two to four distinct indices into `entries`; position `k` becomes `compared_entry_hash_k`.
+         */compare: Data, 
+        /**
+         * Request-level Engine hints, at most 1 KiB.
+         */hints: Data) {
+        self.aud = aud
+        self.nonce = nonce
+        self.offeredConfigurations = offeredConfigurations
+        self.entries = entries
+        self.compare = compare
+        self.hints = hints
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FlamingoMatchRequest: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFlamingoMatchRequest: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FlamingoMatchRequest {
+        return
+            try FlamingoMatchRequest(
+                aud: FfiConverterTypeFieldElement.read(from: &buf), 
+                nonce: FfiConverterTypeFieldElement.read(from: &buf), 
+                offeredConfigurations: FfiConverterSequenceTypeFlamingoEngineConfiguration.read(from: &buf), 
+                entries: FfiConverterSequenceTypeFlamingoEntry.read(from: &buf), 
+                compare: FfiConverterData.read(from: &buf), 
+                hints: FfiConverterData.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FlamingoMatchRequest, into buf: inout [UInt8]) {
+        FfiConverterTypeFieldElement.write(value.aud, into: &buf)
+        FfiConverterTypeFieldElement.write(value.nonce, into: &buf)
+        FfiConverterSequenceTypeFlamingoEngineConfiguration.write(value.offeredConfigurations, into: &buf)
+        FfiConverterSequenceTypeFlamingoEntry.write(value.entries, into: &buf)
+        FfiConverterData.write(value.compare, into: &buf)
+        FfiConverterData.write(value.hints, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoMatchRequest_lift(_ buf: RustBuffer) throws -> FlamingoMatchRequest {
+    return try FfiConverterTypeFlamingoMatchRequest.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFlamingoMatchRequest_lower(_ value: FlamingoMatchRequest) -> RustBuffer {
+    return FfiConverterTypeFlamingoMatchRequest.lower(value)
+}
+
+
+/**
+ * The name of one of the account's other authenticators.
+ */
+public struct KnownAuthenticator: Equatable, Hashable {
+    /**
+     * The slot of the authenticator, below `MAX_AUTHENTICATOR_KEYS`.
+     */
+    public var pubkeyId: UInt32
+    /**
+     * The name the Approving Authenticator knows it by.
+     */
+    public var name: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The slot of the authenticator, below `MAX_AUTHENTICATOR_KEYS`.
+         */pubkeyId: UInt32, 
+        /**
+         * The name the Approving Authenticator knows it by.
+         */name: String) {
+        self.pubkeyId = pubkeyId
+        self.name = name
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension KnownAuthenticator: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeKnownAuthenticator: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> KnownAuthenticator {
+        return
+            try KnownAuthenticator(
+                pubkeyId: FfiConverterUInt32.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: KnownAuthenticator, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.pubkeyId, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeKnownAuthenticator_lift(_ buf: RustBuffer) throws -> KnownAuthenticator {
+    return try FfiConverterTypeKnownAuthenticator.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeKnownAuthenticator_lower(_ value: KnownAuthenticator) -> RustBuffer {
+    return FfiConverterTypeKnownAuthenticator.lower(value)
 }
 
 
@@ -10007,6 +12098,168 @@ public func FfiConverterTypeRecoveryUpdateSignature_lower(_ value: RecoveryUpdat
 
 
 /**
+ * A verified registration.
+ */
+public struct Registered {
+    /**
+     * The new authenticator. Its storage is not initialized yet.
+     */
+    public var authenticator: Authenticator
+    /**
+     * The shared `CredentialStore::export_vault_for_backup` output, to import with
+     * `CredentialStore::merge_vault_from_backup` once storage is initialized.
+     */
+    public var vaultBackup: Data?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The new authenticator. Its storage is not initialized yet.
+         */authenticator: Authenticator, 
+        /**
+         * The shared `CredentialStore::export_vault_for_backup` output, to import with
+         * `CredentialStore::merge_vault_from_backup` once storage is initialized.
+         */vaultBackup: Data?) {
+        self.authenticator = authenticator
+        self.vaultBackup = vaultBackup
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension Registered: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRegistered: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Registered {
+        return
+            try Registered(
+                authenticator: FfiConverterTypeAuthenticator.read(from: &buf), 
+                vaultBackup: FfiConverterOptionData.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: Registered, into buf: inout [UInt8]) {
+        FfiConverterTypeAuthenticator.write(value.authenticator, into: &buf)
+        FfiConverterOptionData.write(value.vaultBackup, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRegistered_lift(_ buf: RustBuffer) throws -> Registered {
+    return try FfiConverterTypeRegistered.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRegistered_lower(_ value: Registered) -> RustBuffer {
+    return FfiConverterTypeRegistered.lower(value)
+}
+
+
+/**
+ * An error response from the Approving Authenticator (WIP-109 §3.6.3).
+ */
+public struct RegistrationError: Equatable, Hashable {
+    /**
+     * The parsed WIP-109 reason, or `None` for an unrecognized error code.
+     */
+    public var reason: RegistrationErrorReason?
+    /**
+     * The raw `error.code`.
+     */
+    public var code: String
+    /**
+     * The human-readable `error.message`.
+     */
+    public var message: String
+    /**
+     * Optional implementation-specific detail from `error.data.detail`, e.g. a gateway error
+     * code.
+     */
+    public var detail: String?
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The parsed WIP-109 reason, or `None` for an unrecognized error code.
+         */reason: RegistrationErrorReason?, 
+        /**
+         * The raw `error.code`.
+         */code: String, 
+        /**
+         * The human-readable `error.message`.
+         */message: String, 
+        /**
+         * Optional implementation-specific detail from `error.data.detail`, e.g. a gateway error
+         * code.
+         */detail: String?) {
+        self.reason = reason
+        self.code = code
+        self.message = message
+        self.detail = detail
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension RegistrationError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRegistrationError: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RegistrationError {
+        return
+            try RegistrationError(
+                reason: FfiConverterOptionTypeRegistrationErrorReason.read(from: &buf), 
+                code: FfiConverterString.read(from: &buf), 
+                message: FfiConverterString.read(from: &buf), 
+                detail: FfiConverterOptionString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: RegistrationError, into buf: inout [UInt8]) {
+        FfiConverterOptionTypeRegistrationErrorReason.write(value.reason, into: &buf)
+        FfiConverterString.write(value.code, into: &buf)
+        FfiConverterString.write(value.message, into: &buf)
+        FfiConverterOptionString.write(value.detail, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRegistrationError_lift(_ buf: RustBuffer) throws -> RegistrationError {
+    return try FfiConverterTypeRegistrationError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRegistrationError_lower(_ value: RegistrationError) -> RustBuffer {
+    return FfiConverterTypeRegistrationError.lower(value)
+}
+
+
+/**
  * Replay guard result.
  */
 public struct ReplayGuardResult: Equatable, Hashable {
@@ -10370,6 +12623,321 @@ public func FfiConverterTypeActivityOutcome_lower(_ value: ActivityOutcome) -> R
 
 
 /**
+ * Whether [`CheckedRegistration::approve`](super::CheckedRegistration::approve) registered the
+ * authenticator.
+ */
+
+public enum ApprovalResult: Equatable, Hashable {
+    
+    /**
+     * The authenticator is registered on-chain, even if the response was not delivered.
+     */
+    case registered(
+        /**
+         * The index of the account.
+         */leafIndex: UInt64, 
+        /**
+         * The slot the authenticator is registered at.
+         */pubkeyId: UInt32
+    )
+    /**
+     * The registration did not succeed. `OutcomeUnknown` means that it may still land.
+     */
+    case failed(
+        /**
+         * The reason, which was sent to the Requesting Authenticator.
+         */reason: RegistrationErrorReason
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension ApprovalResult: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeApprovalResult: FfiConverterRustBuffer {
+    typealias SwiftType = ApprovalResult
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ApprovalResult {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .registered(leafIndex: try FfiConverterUInt64.read(from: &buf), pubkeyId: try FfiConverterUInt32.read(from: &buf)
+        )
+        
+        case 2: return .failed(reason: try FfiConverterTypeRegistrationErrorReason.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: ApprovalResult, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .registered(leafIndex,pubkeyId):
+            writeInt(&buf, Int32(1))
+            FfiConverterUInt64.write(leafIndex, into: &buf)
+            FfiConverterUInt32.write(pubkeyId, into: &buf)
+            
+        
+        case let .failed(reason):
+            writeInt(&buf, Int32(2))
+            FfiConverterTypeRegistrationErrorReason.write(reason, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeApprovalResult_lift(_ buf: RustBuffer) throws -> ApprovalResult {
+    return try FfiConverterTypeApprovalResult.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeApprovalResult_lower(_ value: ApprovalResult) -> RustBuffer {
+    return FfiConverterTypeApprovalResult.lower(value)
+}
+
+
+
+/**
+ * Errors on the Approving Authenticator's side of a registration.
+ */
+public 
+enum ApproverError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+    
+    
+    /**
+     * The scanned text is not a WIP-109 Pairing URI.
+     */
+    case InvalidPairingUri
+    /**
+     * The Pairing URI names a bridge the host does not allow. The host may ask the user to
+     * confirm it, then retry with a client for it (WIP-109 §3.4).
+     */
+    case BridgeNotAllowed(
+        /**
+         * The bridge domain named by the Pairing URI.
+         */domain: String
+    )
+    /**
+     * The request expired or was already used. The user should create a new QR code or link
+     * on the new device.
+     */
+    case Expired
+    /**
+     * The entered code is not six letters. No attempt was used.
+     */
+    case MalformedCode
+    /**
+     * The code did not authenticate the request.
+     */
+    case IncorrectCode(
+        /**
+         * Remaining code attempts; zero means a new pairing is required.
+         */attemptsRemaining: UInt8
+    )
+    /**
+     * The authenticated request is invalid, or does not match the Pairing URI.
+     */
+    case InvalidRequest(
+        /**
+         * What is wrong with the request.
+         */problem: String, 
+        /**
+         * Whether the error was delivered. A request without a readable response key cannot be
+         * answered, and a notification must not be.
+         */delivered: Bool
+    )
+    /**
+     * The registration was refused (WIP-109 §3.7.2).
+     */
+    case Refused(
+        /**
+         * The reason, which was sent to the Requesting Authenticator.
+         */reason: RegistrationErrorReason, 
+        /**
+         * The failure behind the refusal, if there was one. It was not sent.
+         */failure: WalletKitError?, 
+        /**
+         * Whether the reason was delivered.
+         */delivered: Bool
+    )
+    /**
+     * The bridge could not be reached or rejected an operation.
+     */
+    case Bridge(BridgeError
+    )
+    /**
+     * Decrypting the request failed for a reason other than a wrong code.
+     */
+    case Transport(TransportError
+    )
+    /**
+     * The authenticator passed to
+     * [`CheckedRegistration::approve`](super::CheckedRegistration::approve) is not the one that
+     * [`IncomingRegistration::check`](super::IncomingRegistration::check) checked.
+     */
+    case ApproverMismatch
+    /**
+     * This step was already taken, so the registration has moved on or ended.
+     */
+    case AlreadyHandled
+
+    
+
+    
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
+}
+
+#if compiler(>=6)
+extension ApproverError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeApproverError: FfiConverterRustBuffer {
+    typealias SwiftType = ApproverError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ApproverError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .InvalidPairingUri
+        case 2: return .BridgeNotAllowed(
+            domain: try FfiConverterString.read(from: &buf)
+            )
+        case 3: return .Expired
+        case 4: return .MalformedCode
+        case 5: return .IncorrectCode(
+            attemptsRemaining: try FfiConverterUInt8.read(from: &buf)
+            )
+        case 6: return .InvalidRequest(
+            problem: try FfiConverterString.read(from: &buf), 
+            delivered: try FfiConverterBool.read(from: &buf)
+            )
+        case 7: return .Refused(
+            reason: try FfiConverterTypeRegistrationErrorReason.read(from: &buf), 
+            failure: try FfiConverterOptionTypeWalletKitError.read(from: &buf), 
+            delivered: try FfiConverterBool.read(from: &buf)
+            )
+        case 8: return .Bridge(
+            try FfiConverterTypeBridgeError.read(from: &buf)
+            )
+        case 9: return .Transport(
+            try FfiConverterTypeTransportError.read(from: &buf)
+            )
+        case 10: return .ApproverMismatch
+        case 11: return .AlreadyHandled
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: ApproverError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case .InvalidPairingUri:
+            writeInt(&buf, Int32(1))
+        
+        
+        case let .BridgeNotAllowed(domain):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(domain, into: &buf)
+            
+        
+        case .Expired:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .MalformedCode:
+            writeInt(&buf, Int32(4))
+        
+        
+        case let .IncorrectCode(attemptsRemaining):
+            writeInt(&buf, Int32(5))
+            FfiConverterUInt8.write(attemptsRemaining, into: &buf)
+            
+        
+        case let .InvalidRequest(problem,delivered):
+            writeInt(&buf, Int32(6))
+            FfiConverterString.write(problem, into: &buf)
+            FfiConverterBool.write(delivered, into: &buf)
+            
+        
+        case let .Refused(reason,failure,delivered):
+            writeInt(&buf, Int32(7))
+            FfiConverterTypeRegistrationErrorReason.write(reason, into: &buf)
+            FfiConverterOptionTypeWalletKitError.write(failure, into: &buf)
+            FfiConverterBool.write(delivered, into: &buf)
+            
+        
+        case let .Bridge(v1):
+            writeInt(&buf, Int32(8))
+            FfiConverterTypeBridgeError.write(v1, into: &buf)
+            
+        
+        case let .Transport(v1):
+            writeInt(&buf, Int32(9))
+            FfiConverterTypeTransportError.write(v1, into: &buf)
+            
+        
+        case .ApproverMismatch:
+            writeInt(&buf, Int32(10))
+        
+        
+        case .AlreadyHandled:
+            writeInt(&buf, Int32(11))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeApproverError_lift(_ buf: RustBuffer) throws -> ApproverError {
+    return try FfiConverterTypeApproverError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeApproverError_lower(_ value: ApproverError) -> RustBuffer {
+    return FfiConverterTypeApproverError.lower(value)
+}
+
+
+/**
  * Kind of blob stored in the vault.
  *
  * Blob records (stored in the `blob_objects` table) carry a kind tag that
@@ -10445,6 +13013,161 @@ public func FfiConverterTypeBlobKind_lower(_ value: BlobKind) -> RustBuffer {
     return FfiConverterTypeBlobKind.lower(value)
 }
 
+
+
+/**
+ * Errors from talking to the message-bridge.
+ */
+public 
+enum BridgeError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+    
+    
+    /**
+     * The bridge domain is not a valid DNS name with a named top-level label.
+     */
+    case InvalidDomain(String
+    )
+    /**
+     * The bridge URL cannot be built.
+     */
+    case InvalidUrl(String
+    )
+    /**
+     * The request failed in transit. The error carries no URL: the bridge routes contain the
+     * request id, which is the only key to the session.
+     */
+    case Transport(String
+    )
+    /**
+     * The bridge answered with a status the operation does not expect.
+     */
+    case UnexpectedStatus(
+        /**
+         * The HTTP status code.
+         */status: UInt16
+    )
+    /**
+     * The bridge returned malformed JSON.
+     */
+    case Json(String
+    )
+    /**
+     * The bridge response exceeded the bridge's body limit.
+     */
+    case TooLarge
+    /**
+     * The operation exhausted its time budget.
+     */
+    case Timeout
+
+    
+
+    
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
+}
+
+#if compiler(>=6)
+extension BridgeError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeBridgeError: FfiConverterRustBuffer {
+    typealias SwiftType = BridgeError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> BridgeError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .InvalidDomain(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 2: return .InvalidUrl(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 3: return .Transport(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 4: return .UnexpectedStatus(
+            status: try FfiConverterUInt16.read(from: &buf)
+            )
+        case 5: return .Json(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 6: return .TooLarge
+        case 7: return .Timeout
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: BridgeError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .InvalidDomain(v1):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(v1, into: &buf)
+            
+        
+        case let .InvalidUrl(v1):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(v1, into: &buf)
+            
+        
+        case let .Transport(v1):
+            writeInt(&buf, Int32(3))
+            FfiConverterString.write(v1, into: &buf)
+            
+        
+        case let .UnexpectedStatus(status):
+            writeInt(&buf, Int32(4))
+            FfiConverterUInt16.write(status, into: &buf)
+            
+        
+        case let .Json(v1):
+            writeInt(&buf, Int32(5))
+            FfiConverterString.write(v1, into: &buf)
+            
+        
+        case .TooLarge:
+            writeInt(&buf, Int32(6))
+        
+        
+        case .Timeout:
+            writeInt(&buf, Int32(7))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBridgeError_lift(_ buf: RustBuffer) throws -> BridgeError {
+    return try FfiConverterTypeBridgeError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeBridgeError_lower(_ value: BridgeError) -> RustBuffer {
+    return FfiConverterTypeBridgeError.lower(value)
+}
 
 
 /**
@@ -10840,13 +13563,16 @@ public func FfiConverterTypeFlamingoComparison_lower(_ value: FlamingoComparison
 
 
 /**
- * Worker diagnostic delivery status. JSON is excluded from `Debug` output.
+ * Engine diagnostic delivery status. JSON is excluded from `Debug` output.
+ *
+ * A report may describe biometric data. It must not be forwarded without the user's explicit
+ * consent, and then only to the Engine Provider.
  */
 
 public enum FlamingoDebugReport: Equatable, Hashable {
     
     /**
-     * Original worker JSON without reserialization.
+     * Original Engine JSON without reserialization.
      */
     case available(
         /**
@@ -10854,11 +13580,11 @@ public enum FlamingoDebugReport: Equatable, Hashable {
          */json: String
     )
     /**
-     * Worker did not produce a report or inference did not run.
+     * The Engine did not produce a report, or did not run.
      */
     case notProduced
     /**
-     * Entire report omitted while preserving the match outcome.
+     * Entire report omitted while preserving the outcome.
      */
     case omittedTooLarge(
         /**
@@ -10945,7 +13671,7 @@ enum FlamingoError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError 
     
     
     /**
-     * A caller-supplied value cannot form a valid match request.
+     * A caller-supplied value cannot form a valid WIP-201 request.
      */
     case InvalidInput(
         /**
@@ -10962,10 +13688,15 @@ enum FlamingoError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError 
          */limitBytes: UInt64?
     )
     /**
-     * The verifier configuration was not valid.
+     * The verifier or Engine Provider configuration was not valid.
      */
     case Configuration(String
     )
+    /**
+     * No offered Engine configuration is signed by the trusted Engine Provider, within the
+     * accepted response slot count, and loaded on the assigned Verifier. Nothing was sent.
+     */
+    case NoSupportedEngine
     /**
      * Preparing the integrity token or signing the request failed.
      */
@@ -11023,7 +13754,7 @@ enum FlamingoError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError 
      */
     case InvalidSigningKey
     /**
-     * Token signature or request commitments did not verify.
+     * The Flamingo Token's signature did not verify, or its claims differ from the request.
      */
     case StatementInvalid
     /**
@@ -11068,29 +13799,30 @@ public struct FfiConverterTypeFlamingoError: FfiConverterRustBuffer {
         case 2: return .Configuration(
             try FfiConverterString.read(from: &buf)
             )
-        case 3: return .RequestIntegrity(
+        case 3: return .NoSupportedEngine
+        case 4: return .RequestIntegrity(
             try FfiConverterTypeRequestIntegrityError.read(from: &buf)
             )
-        case 4: return .Service(
+        case 5: return .Service(
             code: try FfiConverterString.read(from: &buf), 
             allowRetry: try FfiConverterBool.read(from: &buf)
             )
-        case 5: return .Timeout
-        case 6: return .Transport(
+        case 6: return .Timeout
+        case 7: return .Transport(
             details: try FfiConverterString.read(from: &buf)
             )
-        case 7: return .InvalidResponse(
+        case 8: return .InvalidResponse(
             stage: try FfiConverterTypeFlamingoResponseStage.read(from: &buf)
             )
-        case 8: return .Attestation(
+        case 9: return .Attestation(
             details: try FfiConverterString.read(from: &buf)
             )
-        case 9: return .Channel(
+        case 10: return .Channel(
             details: try FfiConverterString.read(from: &buf)
             )
-        case 10: return .InvalidSigningKey
-        case 11: return .StatementInvalid
-        case 12: return .ReassignmentRequired
+        case 11: return .InvalidSigningKey
+        case 12: return .StatementInvalid
+        case 13: return .ReassignmentRequired
 
          default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -11116,51 +13848,55 @@ public struct FfiConverterTypeFlamingoError: FfiConverterRustBuffer {
             FfiConverterString.write(v1, into: &buf)
             
         
-        case let .RequestIntegrity(v1):
+        case .NoSupportedEngine:
             writeInt(&buf, Int32(3))
+        
+        
+        case let .RequestIntegrity(v1):
+            writeInt(&buf, Int32(4))
             FfiConverterTypeRequestIntegrityError.write(v1, into: &buf)
             
         
         case let .Service(code,allowRetry):
-            writeInt(&buf, Int32(4))
+            writeInt(&buf, Int32(5))
             FfiConverterString.write(code, into: &buf)
             FfiConverterBool.write(allowRetry, into: &buf)
             
         
         case .Timeout:
-            writeInt(&buf, Int32(5))
+            writeInt(&buf, Int32(6))
         
         
         case let .Transport(details):
-            writeInt(&buf, Int32(6))
+            writeInt(&buf, Int32(7))
             FfiConverterString.write(details, into: &buf)
             
         
         case let .InvalidResponse(stage):
-            writeInt(&buf, Int32(7))
+            writeInt(&buf, Int32(8))
             FfiConverterTypeFlamingoResponseStage.write(stage, into: &buf)
             
         
         case let .Attestation(details):
-            writeInt(&buf, Int32(8))
-            FfiConverterString.write(details, into: &buf)
-            
-        
-        case let .Channel(details):
             writeInt(&buf, Int32(9))
             FfiConverterString.write(details, into: &buf)
             
         
-        case .InvalidSigningKey:
+        case let .Channel(details):
             writeInt(&buf, Int32(10))
+            FfiConverterString.write(details, into: &buf)
+            
         
-        
-        case .StatementInvalid:
+        case .InvalidSigningKey:
             writeInt(&buf, Int32(11))
         
         
-        case .ReassignmentRequired:
+        case .StatementInvalid:
             writeInt(&buf, Int32(12))
+        
+        
+        case .ReassignmentRequired:
+            writeInt(&buf, Int32(13))
         
         }
     }
@@ -11759,21 +14495,17 @@ public func FfiConverterTypeFlamingoImageRole_lower(_ value: FlamingoImageRole) 
 public enum FlamingoInputFailureKind: Equatable, Hashable {
     
     /**
-     * The field is empty.
+     * The field breaks a WIP-201 shape or bound other than an entry budget.
      */
-    case empty
+    case invalidShape
     /**
-     * The field exceeded its size limit.
+     * An entry exceeded its size limit.
      */
     case tooLarge
     /**
-     * The images exceeded the combined limit.
+     * The entries exceeded the combined limit.
      */
     case totalTooLarge
-    /**
-     * The threshold is nonfinite or outside `[0, 1]`.
-     */
-    case invalidThreshold
 
 
 
@@ -11795,13 +14527,11 @@ public struct FfiConverterTypeFlamingoInputFailureKind: FfiConverterRustBuffer {
         let variant: Int32 = try readInt(&buf)
         switch variant {
         
-        case 1: return .empty
+        case 1: return .invalidShape
         
         case 2: return .tooLarge
         
         case 3: return .totalTooLarge
-        
-        case 4: return .invalidThreshold
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -11811,7 +14541,7 @@ public struct FfiConverterTypeFlamingoInputFailureKind: FfiConverterRustBuffer {
         switch value {
         
         
-        case .empty:
+        case .invalidShape:
             writeInt(&buf, Int32(1))
         
         
@@ -11821,10 +14551,6 @@ public struct FfiConverterTypeFlamingoInputFailureKind: FfiConverterRustBuffer {
         
         case .totalTooLarge:
             writeInt(&buf, Int32(3))
-        
-        
-        case .invalidThreshold:
-            writeInt(&buf, Int32(4))
         
         }
     }
@@ -11963,115 +14689,23 @@ public func FfiConverterTypeFlamingoInputFailureReason_lower(_ value: FlamingoIn
 
 
 /**
- * A single image or an explicitly selected `LightGuard` pair.
- */
-
-public enum FlamingoLiveCapture: Equatable, Hashable {
-    
-    /**
-     * Vanilla selfie bytes.
-     */
-    case vanilla(
-        /**
-         * Encoded vanilla selfie bytes.
-         */image: Data
-    )
-    /**
-     * Illuminated and unilluminated frames with an explicit matching-frame selection.
-     */
-    case lightGuard(
-        /**
-         * Illuminated frame bytes.
-         */illuminated: Data, 
-        /**
-         * Unilluminated frame bytes.
-         */unilluminated: Data, 
-        /**
-         * Frame used for matching.
-         */matchingFrame: FlamingoMatchingFrame
-    )
-
-
-
-
-
-}
-
-#if compiler(>=6)
-extension FlamingoLiveCapture: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeFlamingoLiveCapture: FfiConverterRustBuffer {
-    typealias SwiftType = FlamingoLiveCapture
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FlamingoLiveCapture {
-        let variant: Int32 = try readInt(&buf)
-        switch variant {
-        
-        case 1: return .vanilla(image: try FfiConverterData.read(from: &buf)
-        )
-        
-        case 2: return .lightGuard(illuminated: try FfiConverterData.read(from: &buf), unilluminated: try FfiConverterData.read(from: &buf), matchingFrame: try FfiConverterTypeFlamingoMatchingFrame.read(from: &buf)
-        )
-        
-        default: throw UniffiInternalError.unexpectedEnumCase
-        }
-    }
-
-    public static func write(_ value: FlamingoLiveCapture, into buf: inout [UInt8]) {
-        switch value {
-        
-        
-        case let .vanilla(image):
-            writeInt(&buf, Int32(1))
-            FfiConverterData.write(image, into: &buf)
-            
-        
-        case let .lightGuard(illuminated,unilluminated,matchingFrame):
-            writeInt(&buf, Int32(2))
-            FfiConverterData.write(illuminated, into: &buf)
-            FfiConverterData.write(unilluminated, into: &buf)
-            FfiConverterTypeFlamingoMatchingFrame.write(matchingFrame, into: &buf)
-            
-        }
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFlamingoLiveCapture_lift(_ buf: RustBuffer) throws -> FlamingoLiveCapture {
-    return try FfiConverterTypeFlamingoLiveCapture.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFlamingoLiveCapture_lower(_ value: FlamingoLiveCapture) -> RustBuffer {
-    return FfiConverterTypeFlamingoLiveCapture.lower(value)
-}
-
-
-
-/**
- * The outcome of the TEE match phase.
+ * The outcome of a Flamingo request.
  */
 
 public enum FlamingoMatchOutcome {
     
     /**
-     * The enclave issued a token and `WalletKit` verified it against an attested signing key.
+     * The Engine passed, and `WalletKit` verified the Flamingo Token.
      */
     case matched(
         /**
          * Verified token handle for proof consumers.
-         */token: VerifiedMatchToken, 
+         */token: VerifiedFlamingoToken, 
         /**
-         * Original worker diagnostics, not signed proof claims.
+         * The offered configuration the Verifier ran.
+         */configuration: FlamingoEngineConfiguration, 
+        /**
+         * Engine diagnostics, not covered by the token.
          */debugReport: FlamingoDebugReport
     )
     /**
@@ -12082,7 +14716,7 @@ public enum FlamingoMatchOutcome {
          * Structured input or biometric rejection.
          */reason: FlamingoMatchRejection, 
         /**
-         * Worker diagnostics, if produced before rejection.
+         * Engine diagnostics, if produced before rejection.
          */debugReport: FlamingoDebugReport
     )
 
@@ -12106,7 +14740,7 @@ public struct FfiConverterTypeFlamingoMatchOutcome: FfiConverterRustBuffer {
         let variant: Int32 = try readInt(&buf)
         switch variant {
         
-        case 1: return .matched(token: try FfiConverterTypeVerifiedMatchToken.read(from: &buf), debugReport: try FfiConverterTypeFlamingoDebugReport.read(from: &buf)
+        case 1: return .matched(token: try FfiConverterTypeVerifiedFlamingoToken.read(from: &buf), configuration: try FfiConverterTypeFlamingoEngineConfiguration.read(from: &buf), debugReport: try FfiConverterTypeFlamingoDebugReport.read(from: &buf)
         )
         
         case 2: return .rejected(reason: try FfiConverterTypeFlamingoMatchRejection.read(from: &buf), debugReport: try FfiConverterTypeFlamingoDebugReport.read(from: &buf)
@@ -12120,9 +14754,10 @@ public struct FfiConverterTypeFlamingoMatchOutcome: FfiConverterRustBuffer {
         switch value {
         
         
-        case let .matched(token,debugReport):
+        case let .matched(token,configuration,debugReport):
             writeInt(&buf, Int32(1))
-            FfiConverterTypeVerifiedMatchToken.write(token, into: &buf)
+            FfiConverterTypeVerifiedFlamingoToken.write(token, into: &buf)
+            FfiConverterTypeFlamingoEngineConfiguration.write(configuration, into: &buf)
             FfiConverterTypeFlamingoDebugReport.write(debugReport, into: &buf)
             
         
@@ -12159,21 +14794,37 @@ public func FfiConverterTypeFlamingoMatchOutcome_lower(_ value: FlamingoMatchOut
 public enum FlamingoMatchRejection: Equatable, Hashable {
     
     /**
-     * Malformed encrypted request.
+     * The request broke a WIP-201 bound.
      */
     case malformedInputs
     /**
-     * Invalid PCP hashes file.
+     * The Verifier has not loaded the requested release.
      */
-    case invalidHashesJson
+    case unsupportedRelease
     /**
-     * Orb image did not match its PCP commitment.
+     * The request exceeds the selected pipeline's byte limit.
      */
-    case thumbnailHashMismatch
+    case requestTooLarge
     /**
-     * Threshold was not a finite normalized cosine value.
+     * This audience and nonce have already been used.
      */
-    case invalidThreshold
+    case replayed
+    /**
+     * The Engine missed its final response slot; this is an infrastructure failure.
+     */
+    case engineTimeout
+    /**
+     * The Engine does not define the pipeline, or the entries do not fit its layout.
+     */
+    case unsupportedPipeline
+    /**
+     * The Engine does not define the match strictness level.
+     */
+    case unsupportedMatchStrictness
+    /**
+     * The Authenticator Assertion did not verify.
+     */
+    case aatRejected
     /**
      * Exact malformed-input reason and the location/limit supplied by the service.
      */
@@ -12189,7 +14840,7 @@ public enum FlamingoMatchRejection: Equatable, Hashable {
          */limitBytes: UInt64?
     )
     /**
-     * A comparison did not meet the threshold.
+     * A comparison did not meet the requested match strictness.
      */
     case matchBelowThreshold(
         /**
@@ -12245,25 +14896,33 @@ public struct FfiConverterTypeFlamingoMatchRejection: FfiConverterRustBuffer {
         
         case 1: return .malformedInputs
         
-        case 2: return .invalidHashesJson
+        case 2: return .unsupportedRelease
         
-        case 3: return .thumbnailHashMismatch
+        case 3: return .requestTooLarge
         
-        case 4: return .invalidThreshold
+        case 4: return .replayed
         
-        case 5: return .inputRejected(reason: try FfiConverterTypeFlamingoInputFailureReason.read(from: &buf), image: try FfiConverterOptionTypeFlamingoImageRole.read(from: &buf), limitBytes: try FfiConverterOptionUInt64.read(from: &buf)
+        case 5: return .engineTimeout
+        
+        case 6: return .unsupportedPipeline
+        
+        case 7: return .unsupportedMatchStrictness
+        
+        case 8: return .aatRejected
+        
+        case 9: return .inputRejected(reason: try FfiConverterTypeFlamingoInputFailureReason.read(from: &buf), image: try FfiConverterOptionTypeFlamingoImageRole.read(from: &buf), limitBytes: try FfiConverterOptionUInt64.read(from: &buf)
         )
         
-        case 6: return .matchBelowThreshold(comparison: try FfiConverterTypeFlamingoComparison.read(from: &buf)
+        case 10: return .matchBelowThreshold(comparison: try FfiConverterTypeFlamingoComparison.read(from: &buf)
         )
         
-        case 7: return .imageRejected(image: try FfiConverterTypeFlamingoImageRole.read(from: &buf), reason: try FfiConverterTypeFlamingoImageFailureReason.read(from: &buf), target: try FfiConverterOptionTypeFlamingoValidationTarget.read(from: &buf)
+        case 11: return .imageRejected(image: try FfiConverterTypeFlamingoImageRole.read(from: &buf), reason: try FfiConverterTypeFlamingoImageFailureReason.read(from: &buf), target: try FfiConverterOptionTypeFlamingoValidationTarget.read(from: &buf)
         )
         
-        case 8: return .matchingFailed(comparison: try FfiConverterTypeFlamingoComparison.read(from: &buf)
+        case 12: return .matchingFailed(comparison: try FfiConverterTypeFlamingoComparison.read(from: &buf)
         )
         
-        case 9: return .`internal`
+        case 13: return .`internal`
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -12277,44 +14936,60 @@ public struct FfiConverterTypeFlamingoMatchRejection: FfiConverterRustBuffer {
             writeInt(&buf, Int32(1))
         
         
-        case .invalidHashesJson:
+        case .unsupportedRelease:
             writeInt(&buf, Int32(2))
         
         
-        case .thumbnailHashMismatch:
+        case .requestTooLarge:
             writeInt(&buf, Int32(3))
         
         
-        case .invalidThreshold:
+        case .replayed:
             writeInt(&buf, Int32(4))
         
         
-        case let .inputRejected(reason,image,limitBytes):
+        case .engineTimeout:
             writeInt(&buf, Int32(5))
+        
+        
+        case .unsupportedPipeline:
+            writeInt(&buf, Int32(6))
+        
+        
+        case .unsupportedMatchStrictness:
+            writeInt(&buf, Int32(7))
+        
+        
+        case .aatRejected:
+            writeInt(&buf, Int32(8))
+        
+        
+        case let .inputRejected(reason,image,limitBytes):
+            writeInt(&buf, Int32(9))
             FfiConverterTypeFlamingoInputFailureReason.write(reason, into: &buf)
             FfiConverterOptionTypeFlamingoImageRole.write(image, into: &buf)
             FfiConverterOptionUInt64.write(limitBytes, into: &buf)
             
         
         case let .matchBelowThreshold(comparison):
-            writeInt(&buf, Int32(6))
+            writeInt(&buf, Int32(10))
             FfiConverterTypeFlamingoComparison.write(comparison, into: &buf)
             
         
         case let .imageRejected(image,reason,target):
-            writeInt(&buf, Int32(7))
+            writeInt(&buf, Int32(11))
             FfiConverterTypeFlamingoImageRole.write(image, into: &buf)
             FfiConverterTypeFlamingoImageFailureReason.write(reason, into: &buf)
             FfiConverterOptionTypeFlamingoValidationTarget.write(target, into: &buf)
             
         
         case let .matchingFailed(comparison):
-            writeInt(&buf, Int32(8))
+            writeInt(&buf, Int32(12))
             FfiConverterTypeFlamingoComparison.write(comparison, into: &buf)
             
         
         case .`internal`:
-            writeInt(&buf, Int32(9))
+            writeInt(&buf, Int32(13))
         
         }
     }
@@ -12333,192 +15008,6 @@ public func FfiConverterTypeFlamingoMatchRejection_lift(_ buf: RustBuffer) throw
 #endif
 public func FfiConverterTypeFlamingoMatchRejection_lower(_ value: FlamingoMatchRejection) -> RustBuffer {
     return FfiConverterTypeFlamingoMatchRejection.lower(value)
-}
-
-
-
-/**
- * Explicit operation-specific inputs. Image buffers move into the client without cloning.
- */
-
-public enum FlamingoMatchRequest: Equatable, Hashable {
-    
-    /**
-     * Three-way matching with the exact original Orb PCP hashes.json.
-     */
-    case deepFace(
-        /**
-         * Exact encoded Orb thumbnail bytes.
-         */orbCredential: Data, 
-        /**
-         * Explicit live capture variant.
-         */live: FlamingoLiveCapture, 
-        /**
-         * Exact encoded RTMS challenge bytes.
-         */rtmsChallenge: Data, 
-        /**
-         * Original PCP hashes.json bytes.
-         */hashesJson: Data, 
-        /**
-         * Minimum normalized cosine similarity in [0, 1].
-         */matchThreshold: Double
-    )
-    /**
-     * Live/challenge matching without credential fields.
-     */
-    case grayBadge(
-        /**
-         * Explicit live capture variant.
-         */live: FlamingoLiveCapture, 
-        /**
-         * Exact encoded RTMS challenge bytes.
-         */rtmsChallenge: Data, 
-        /**
-         * Minimum normalized cosine similarity in [0, 1].
-         */matchThreshold: Double
-    )
-
-
-
-
-
-}
-
-#if compiler(>=6)
-extension FlamingoMatchRequest: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeFlamingoMatchRequest: FfiConverterRustBuffer {
-    typealias SwiftType = FlamingoMatchRequest
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FlamingoMatchRequest {
-        let variant: Int32 = try readInt(&buf)
-        switch variant {
-        
-        case 1: return .deepFace(orbCredential: try FfiConverterData.read(from: &buf), live: try FfiConverterTypeFlamingoLiveCapture.read(from: &buf), rtmsChallenge: try FfiConverterData.read(from: &buf), hashesJson: try FfiConverterData.read(from: &buf), matchThreshold: try FfiConverterDouble.read(from: &buf)
-        )
-        
-        case 2: return .grayBadge(live: try FfiConverterTypeFlamingoLiveCapture.read(from: &buf), rtmsChallenge: try FfiConverterData.read(from: &buf), matchThreshold: try FfiConverterDouble.read(from: &buf)
-        )
-        
-        default: throw UniffiInternalError.unexpectedEnumCase
-        }
-    }
-
-    public static func write(_ value: FlamingoMatchRequest, into buf: inout [UInt8]) {
-        switch value {
-        
-        
-        case let .deepFace(orbCredential,live,rtmsChallenge,hashesJson,matchThreshold):
-            writeInt(&buf, Int32(1))
-            FfiConverterData.write(orbCredential, into: &buf)
-            FfiConverterTypeFlamingoLiveCapture.write(live, into: &buf)
-            FfiConverterData.write(rtmsChallenge, into: &buf)
-            FfiConverterData.write(hashesJson, into: &buf)
-            FfiConverterDouble.write(matchThreshold, into: &buf)
-            
-        
-        case let .grayBadge(live,rtmsChallenge,matchThreshold):
-            writeInt(&buf, Int32(2))
-            FfiConverterTypeFlamingoLiveCapture.write(live, into: &buf)
-            FfiConverterData.write(rtmsChallenge, into: &buf)
-            FfiConverterDouble.write(matchThreshold, into: &buf)
-            
-        }
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFlamingoMatchRequest_lift(_ buf: RustBuffer) throws -> FlamingoMatchRequest {
-    return try FfiConverterTypeFlamingoMatchRequest.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFlamingoMatchRequest_lower(_ value: FlamingoMatchRequest) -> RustBuffer {
-    return FfiConverterTypeFlamingoMatchRequest.lower(value)
-}
-
-
-
-/**
- * Which `LightGuard` frame provides the matching embedding.
- */
-
-public enum FlamingoMatchingFrame: Equatable, Hashable {
-    
-    /**
-     * Use the illuminated frame.
-     */
-    case illuminated
-    /**
-     * Use the unilluminated frame.
-     */
-    case unilluminated
-
-
-
-
-
-}
-
-#if compiler(>=6)
-extension FlamingoMatchingFrame: Sendable {}
-#endif
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public struct FfiConverterTypeFlamingoMatchingFrame: FfiConverterRustBuffer {
-    typealias SwiftType = FlamingoMatchingFrame
-
-    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FlamingoMatchingFrame {
-        let variant: Int32 = try readInt(&buf)
-        switch variant {
-        
-        case 1: return .illuminated
-        
-        case 2: return .unilluminated
-        
-        default: throw UniffiInternalError.unexpectedEnumCase
-        }
-    }
-
-    public static func write(_ value: FlamingoMatchingFrame, into buf: inout [UInt8]) {
-        switch value {
-        
-        
-        case .illuminated:
-            writeInt(&buf, Int32(1))
-        
-        
-        case .unilluminated:
-            writeInt(&buf, Int32(2))
-        
-        }
-    }
-}
-
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFlamingoMatchingFrame_lift(_ buf: RustBuffer) throws -> FlamingoMatchingFrame {
-    return try FfiConverterTypeFlamingoMatchingFrame.lift(buf)
-}
-
-#if swift(>=5.8)
-@_documentation(visibility: private)
-#endif
-public func FfiConverterTypeFlamingoMatchingFrame_lower(_ value: FlamingoMatchingFrame) -> RustBuffer {
-    return FfiConverterTypeFlamingoMatchingFrame.lower(value)
 }
 
 
@@ -13096,6 +15585,269 @@ public func FfiConverterTypeRegion_lower(_ value: Region) -> RustBuffer {
 
 
 /**
+ * The machine-readable reason a registration failed, carried as its `code` in `error.code`.
+ */
+
+public enum RegistrationErrorReason: Equatable, Hashable {
+    
+    /**
+     * The request is not valid CBOR (WIP-105 §3.1.4).
+     */
+    case parseError
+    /**
+     * The request envelope or its ID is invalid (WIP-105 §3.1.4).
+     */
+    case invalidRequest
+    /**
+     * The request is for another method (WIP-105 §3.1.4).
+     */
+    case methodNotFound
+    /**
+     * A field is missing or malformed, or a key or address is invalid.
+     */
+    case invalidParams
+    /**
+     * The Approving Authenticator does not accept the requested name.
+     */
+    case invalidName
+    /**
+     * The Approving Authenticator could not complete the request for another reason.
+     */
+    case internalError
+    /**
+     * The user declined.
+     */
+    case userRejected
+    /**
+     * The Approving Authenticator is not an Admin Authenticator of the account.
+     */
+    case notAuthorized
+    /**
+     * The key or address is already registered, but not as requested.
+     */
+    case authenticatorConflict
+    /**
+     * The account has no free authenticator slot.
+     */
+    case maxAuthenticatorsReached
+    /**
+     * The `InsertAuthenticator` operation definitively failed.
+     */
+    case operationFailed
+    /**
+     * The operation was submitted, but its outcome could not be determined in time.
+     */
+    case outcomeUnknown
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension RegistrationErrorReason: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRegistrationErrorReason: FfiConverterRustBuffer {
+    typealias SwiftType = RegistrationErrorReason
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RegistrationErrorReason {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .parseError
+        
+        case 2: return .invalidRequest
+        
+        case 3: return .methodNotFound
+        
+        case 4: return .invalidParams
+        
+        case 5: return .invalidName
+        
+        case 6: return .internalError
+        
+        case 7: return .userRejected
+        
+        case 8: return .notAuthorized
+        
+        case 9: return .authenticatorConflict
+        
+        case 10: return .maxAuthenticatorsReached
+        
+        case 11: return .operationFailed
+        
+        case 12: return .outcomeUnknown
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: RegistrationErrorReason, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .parseError:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .invalidRequest:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .methodNotFound:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .invalidParams:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .invalidName:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .internalError:
+            writeInt(&buf, Int32(6))
+        
+        
+        case .userRejected:
+            writeInt(&buf, Int32(7))
+        
+        
+        case .notAuthorized:
+            writeInt(&buf, Int32(8))
+        
+        
+        case .authenticatorConflict:
+            writeInt(&buf, Int32(9))
+        
+        
+        case .maxAuthenticatorsReached:
+            writeInt(&buf, Int32(10))
+        
+        
+        case .operationFailed:
+            writeInt(&buf, Int32(11))
+        
+        
+        case .outcomeUnknown:
+            writeInt(&buf, Int32(12))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRegistrationErrorReason_lift(_ buf: RustBuffer) throws -> RegistrationErrorReason {
+    return try FfiConverterTypeRegistrationErrorReason.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRegistrationErrorReason_lower(_ value: RegistrationErrorReason) -> RustBuffer {
+    return FfiConverterTypeRegistrationErrorReason.lower(value)
+}
+
+
+
+/**
+ * How a checked registration will be carried out.
+ */
+
+public enum RegistrationPlan: Equatable, Hashable {
+    
+    /**
+     * Insert the authenticator at `pubkey_id`.
+     */
+    case insert(
+        /**
+         * The slot the authenticator will be inserted at.
+         */pubkeyId: UInt32
+    )
+    /**
+     * The authenticator is already registered as requested, e.g. by an earlier session whose
+     * response was lost. Approval only sends the result.
+     */
+    case alreadyRegistered(
+        /**
+         * The slot the authenticator is registered at.
+         */pubkeyId: UInt32
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension RegistrationPlan: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRegistrationPlan: FfiConverterRustBuffer {
+    typealias SwiftType = RegistrationPlan
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RegistrationPlan {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .insert(pubkeyId: try FfiConverterUInt32.read(from: &buf)
+        )
+        
+        case 2: return .alreadyRegistered(pubkeyId: try FfiConverterUInt32.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: RegistrationPlan, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .insert(pubkeyId):
+            writeInt(&buf, Int32(1))
+            FfiConverterUInt32.write(pubkeyId, into: &buf)
+            
+        
+        case let .alreadyRegistered(pubkeyId):
+            writeInt(&buf, Int32(2))
+            FfiConverterUInt32.write(pubkeyId, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRegistrationPlan_lift(_ buf: RustBuffer) throws -> RegistrationPlan {
+    return try FfiConverterTypeRegistrationPlan.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRegistrationPlan_lower(_ value: RegistrationPlan) -> RustBuffer {
+    return FfiConverterTypeRegistrationPlan.lower(value)
+}
+
+
+
+/**
  * Registration status for a World ID being created through the gateway.
  */
 
@@ -13474,6 +16226,374 @@ public func FfiConverterTypeRequestIntegrityPlatform_lower(_ value: RequestInteg
 
 
 /**
+ * The class an authenticator registers with.
+ */
+
+public enum RequestedClass: Equatable, Hashable {
+    
+    /**
+     * An Admin Authenticator, which registers the management key derived from its seed.
+     */
+    case admin
+    /**
+     * A Proving Authenticator.
+     */
+    case proving
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension RequestedClass: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRequestedClass: FfiConverterRustBuffer {
+    typealias SwiftType = RequestedClass
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RequestedClass {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .admin
+        
+        case 2: return .proving
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: RequestedClass, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .admin:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .proving:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRequestedClass_lift(_ buf: RustBuffer) throws -> RequestedClass {
+    return try FfiConverterTypeRequestedClass.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRequestedClass_lower(_ value: RequestedClass) -> RustBuffer {
+    return FfiConverterTypeRequestedClass.lower(value)
+}
+
+
+
+/**
+ * Errors on the Requesting Authenticator's side of a registration.
+ *
+ * Decrypt and malformed-response errors in
+ * [`RegistrationRequester::poll`](super::RegistrationRequester::poll) end the session; bridge
+ * errors leave the session open until it expires so the caller can poll again.
+ */
+public 
+enum RequesterError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+    
+    
+    /**
+     * The requested authenticator name exceeds [`MAX_NAME_LEN`](super::MAX_NAME_LEN).
+     */
+    case NameTooLong
+    /**
+     * The bridge could not be reached or rejected an operation.
+     */
+    case Bridge(BridgeError
+    )
+    /**
+     * Encrypting the request or opening the response failed.
+     */
+    case Transport(TransportError
+    )
+    /**
+     * The seed or configuration is invalid, or reading the account state failed.
+     */
+    case Authenticator(WalletKitError
+    )
+    /**
+     * The request could not be encoded.
+     */
+    case Encoding(String
+    )
+    /**
+     * The response is not a valid answer to this session's request.
+     */
+    case MalformedResponse(String
+    )
+    /**
+     * The seed passed to [`RegistrationRequester::verify`](super::RegistrationRequester::verify)
+     * is not the one this session asked to register.
+     */
+    case SeedMismatch
+    /**
+     * The registry does not show the authenticator where and how the result says it is.
+     */
+    case RegistrationMismatch
+    /**
+     * The registration could not be verified before the deadline.
+     */
+    case VerificationTimeout
+
+    
+
+    
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
+}
+
+#if compiler(>=6)
+extension RequesterError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRequesterError: FfiConverterRustBuffer {
+    typealias SwiftType = RequesterError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RequesterError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .NameTooLong
+        case 2: return .Bridge(
+            try FfiConverterTypeBridgeError.read(from: &buf)
+            )
+        case 3: return .Transport(
+            try FfiConverterTypeTransportError.read(from: &buf)
+            )
+        case 4: return .Authenticator(
+            try FfiConverterTypeWalletKitError.read(from: &buf)
+            )
+        case 5: return .Encoding(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 6: return .MalformedResponse(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 7: return .SeedMismatch
+        case 8: return .RegistrationMismatch
+        case 9: return .VerificationTimeout
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: RequesterError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case .NameTooLong:
+            writeInt(&buf, Int32(1))
+        
+        
+        case let .Bridge(v1):
+            writeInt(&buf, Int32(2))
+            FfiConverterTypeBridgeError.write(v1, into: &buf)
+            
+        
+        case let .Transport(v1):
+            writeInt(&buf, Int32(3))
+            FfiConverterTypeTransportError.write(v1, into: &buf)
+            
+        
+        case let .Authenticator(v1):
+            writeInt(&buf, Int32(4))
+            FfiConverterTypeWalletKitError.write(v1, into: &buf)
+            
+        
+        case let .Encoding(v1):
+            writeInt(&buf, Int32(5))
+            FfiConverterString.write(v1, into: &buf)
+            
+        
+        case let .MalformedResponse(v1):
+            writeInt(&buf, Int32(6))
+            FfiConverterString.write(v1, into: &buf)
+            
+        
+        case .SeedMismatch:
+            writeInt(&buf, Int32(7))
+        
+        
+        case .RegistrationMismatch:
+            writeInt(&buf, Int32(8))
+        
+        
+        case .VerificationTimeout:
+            writeInt(&buf, Int32(9))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRequesterError_lift(_ buf: RustBuffer) throws -> RequesterError {
+    return try FfiConverterTypeRequesterError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRequesterError_lower(_ value: RequesterError) -> RustBuffer {
+    return FfiConverterTypeRequesterError.lower(value)
+}
+
+
+/**
+ * What [`RegistrationRequester::poll`](super::RegistrationRequester::poll) found on the bridge.
+ */
+
+public enum RequesterStatus {
+    
+    /**
+     * The Approving Authenticator has not opened the Pairing URI yet.
+     */
+    case waiting
+    /**
+     * The Approving Authenticator took the request. Show the pairing code.
+     */
+    case retrieved
+    /**
+     * The Approving Authenticator approved the registration. The result must be checked with
+     * [`RegistrationRequester::verify`](super::RegistrationRequester::verify) before it is used.
+     */
+    case approved(
+        /**
+         * The unverified registration result.
+         */result: RegistrationResult
+    )
+    /**
+     * The Approving Authenticator refused or could not complete the registration.
+     */
+    case refused(
+        /**
+         * The error reported by the Approving Authenticator.
+         */error: RegistrationError
+    )
+    /**
+     * The session expired, was cancelled, or its response was lost. Start a new session with
+     * the same seed.
+     */
+    case expired
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension RequesterStatus: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeRequesterStatus: FfiConverterRustBuffer {
+    typealias SwiftType = RequesterStatus
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> RequesterStatus {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .waiting
+        
+        case 2: return .retrieved
+        
+        case 3: return .approved(result: try FfiConverterTypeRegistrationResult.read(from: &buf)
+        )
+        
+        case 4: return .refused(error: try FfiConverterTypeRegistrationError.read(from: &buf)
+        )
+        
+        case 5: return .expired
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: RequesterStatus, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .waiting:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .retrieved:
+            writeInt(&buf, Int32(2))
+        
+        
+        case let .approved(result):
+            writeInt(&buf, Int32(3))
+            FfiConverterTypeRegistrationResult.write(result, into: &buf)
+            
+        
+        case let .refused(error):
+            writeInt(&buf, Int32(4))
+            FfiConverterTypeRegistrationError.write(error, into: &buf)
+            
+        
+        case .expired:
+            writeInt(&buf, Int32(5))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRequesterStatus_lift(_ buf: RustBuffer) throws -> RequesterStatus {
+    return try FfiConverterTypeRequesterStatus.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeRequesterStatus_lower(_ value: RequesterStatus) -> RustBuffer {
+    return FfiConverterTypeRequesterStatus.lower(value)
+}
+
+
+
+/**
  * Errors raised by credential storage primitives.
  */
 public 
@@ -13814,6 +16934,142 @@ public func FfiConverterTypeStorageError_lift(_ buf: RustBuffer) throws -> Stora
 public func FfiConverterTypeStorageError_lower(_ value: StorageError) -> RustBuffer {
     return FfiConverterTypeStorageError.lower(value)
 }
+
+
+/**
+ * Errors from encrypting, decrypting or parsing WIP-109 transport values.
+ */
+
+public enum TransportError: Equatable, Hashable {
+    
+    /**
+     * The manually entered code is not six ASCII letters after normalization.
+     */
+    case invalidPairingCode
+    /**
+     * Deriving the code-bound transport key failed.
+     */
+    case keyDerivation
+    /**
+     * The operating system CSPRNG is unavailable.
+     */
+    case rng
+    /**
+     * Encryption failed.
+     */
+    case encrypt
+    /**
+     * The ciphertext is malformed or failed authentication.
+     */
+    case decrypt
+    /**
+     * The `iv` or `payload` is not valid base64, the nonce has the wrong length, or the
+     * ciphertext is shorter than the authentication tag.
+     */
+    case encoding
+    /**
+     * The message or encrypted payload exceeds the WIP-109 size limit.
+     */
+    case tooLarge
+    /**
+     * The response public key is not a valid X-Wing encapsulation key.
+     */
+    case invalidPublicKey
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension TransportError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeTransportError: FfiConverterRustBuffer {
+    typealias SwiftType = TransportError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> TransportError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .invalidPairingCode
+        
+        case 2: return .keyDerivation
+        
+        case 3: return .rng
+        
+        case 4: return .encrypt
+        
+        case 5: return .decrypt
+        
+        case 6: return .encoding
+        
+        case 7: return .tooLarge
+        
+        case 8: return .invalidPublicKey
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: TransportError, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .invalidPairingCode:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .keyDerivation:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .rng:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .encrypt:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .decrypt:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .encoding:
+            writeInt(&buf, Int32(6))
+        
+        
+        case .tooLarge:
+            writeInt(&buf, Int32(7))
+        
+        
+        case .invalidPublicKey:
+            writeInt(&buf, Int32(8))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTransportError_lift(_ buf: RustBuffer) throws -> TransportError {
+    return try FfiConverterTypeTransportError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeTransportError_lower(_ value: TransportError) -> RustBuffer {
+    return FfiConverterTypeTransportError.lower(value)
+}
+
 
 
 /**
@@ -14562,6 +17818,54 @@ fileprivate struct FfiConverterOptionTypeRegion: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeRegistrationErrorReason: FfiConverterRustBuffer {
+    typealias SwiftType = RegistrationErrorReason?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeRegistrationErrorReason.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeRegistrationErrorReason.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeWalletKitError: FfiConverterRustBuffer {
+    typealias SwiftType = WalletKitError?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeWalletKitError.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeWalletKitError.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceUInt64: FfiConverterRustBuffer {
     typealias SwiftType = [UInt64]
 
@@ -14604,6 +17908,31 @@ fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterString.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeBridgeClient: FfiConverterRustBuffer {
+    typealias SwiftType = [BridgeClient]
+
+    public static func write(_ value: [BridgeClient], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeBridgeClient.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [BridgeClient] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [BridgeClient]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeBridgeClient.read(from: &buf))
         }
         return seq
     }
@@ -14704,6 +18033,81 @@ fileprivate struct FfiConverterSequenceTypeCredentialRecord: FfiConverterRustBuf
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeCredentialRecord.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFlamingoEngineConfiguration: FfiConverterRustBuffer {
+    typealias SwiftType = [FlamingoEngineConfiguration]
+
+    public static func write(_ value: [FlamingoEngineConfiguration], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFlamingoEngineConfiguration.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FlamingoEngineConfiguration] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FlamingoEngineConfiguration]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFlamingoEngineConfiguration.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeFlamingoEntry: FfiConverterRustBuffer {
+    typealias SwiftType = [FlamingoEntry]
+
+    public static func write(_ value: [FlamingoEntry], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFlamingoEntry.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FlamingoEntry] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FlamingoEntry]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFlamingoEntry.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeKnownAuthenticator: FfiConverterRustBuffer {
+    typealias SwiftType = [KnownAuthenticator]
+
+    public static func write(_ value: [KnownAuthenticator], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeKnownAuthenticator.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [KnownAuthenticator] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [KnownAuthenticator]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeKnownAuthenticator.read(from: &buf))
         }
         return seq
     }
@@ -15242,7 +18646,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_flamingomatcher_dangerously_skip_measurements() != 65148) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_flamingomatcher_perform_match() != 21138) {
+    if (uniffi_walletkit_core_checksum_method_flamingomatcher_perform_match() != 59901) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_flamingomatcher_with_engine_provider() != 51219) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_flamingomatcher_with_headers() != 64974) {
@@ -15251,13 +18658,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_flamingomatcher_with_measurements() != 63635) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_method_flamingoengineprovider_provider_id() != 52035) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_method_requestdigestsigner_sign_digest() != 33739) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_requestintegrityprovider_prepare() != 10115) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_walletkit_core_checksum_method_verifiedmatchtoken_match_coefficient() != 18614) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_bind_recovery_agent() != 11385) {
@@ -15282,6 +18689,81 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_ownershipproof_merkle_root() != 49480) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_checkedregistration_abort() != 22990) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_checkedregistration_approve() != 30515) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_checkedregistration_class() != 33273) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_checkedregistration_name() != 49682) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_checkedregistration_plan() != 57849) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_checkedregistration_reject() != 46368) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_checkedregistration_time_remaining_secs() != 47411) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_incomingregistration_check() != 9538) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_incomingregistration_class() != 16831) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_incomingregistration_name() != 10593) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_incomingregistration_reject_name() != 56662) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_incomingregistration_time_remaining_secs() != 29304) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_pendingregistration_authenticate() != 51028) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_bridgeclient_domain() != 44948) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_registrationrequester_cancel() != 15624) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_registrationrequester_pairing_code() != 51586) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_registrationrequester_pairing_uri() != 33885) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_registrationrequester_poll() != 46049) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_registrationrequester_verify() != 48471) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_registrationrequester_verify_with_defaults() != 25613) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_registrationrequester_verify_with_ohttp_defaults() != 4917) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_registrationresult_authenticators() != 59734) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_registrationresult_has_vault() != 10268) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_registrationresult_leaf_index() != 64242) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_registrationresult_pubkey_id() != 18122) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_proofrequest_id() != 61200) {
@@ -15485,6 +18967,15 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_constructor_authenticator_init_with_defaults() != 33778) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_constructor_authenticator_init_with_leaf_index() != 3119) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_constructor_authenticator_init_with_leaf_index_and_defaults() != 65263) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_constructor_authenticator_init_with_leaf_index_and_ohttp_defaults() != 40379) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_constructor_authenticator_init_with_ohttp_defaults() != 64573) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -15515,10 +19006,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_constructor_fieldelement_try_from_hex_string() != 24521) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_flamingomatcher_new() != 50618) {
+    if (uniffi_walletkit_core_checksum_constructor_flamingomatcher_new() != 34104) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_flamingomatcher_new_attested() != 18379) {
+    if (uniffi_walletkit_core_checksum_constructor_flamingomatcher_new_attested() != 18504) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_constructor_flamingoengineprovider_from_metadata() != 32898) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_recoverybindingmanager_new() != 37272) {
@@ -15528,6 +19022,18 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_tfhnfcissuer_new() != 23309) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_constructor_pendingregistration_receive() != 13597) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_constructor_bridgeclient_new() != 35650) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_constructor_bridgeclient_with_base_url() != 8270) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_constructor_registrationrequester_start() != 23099) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_proofrequest_from_json() != 22984) {

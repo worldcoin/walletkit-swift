@@ -1575,6 +1575,9 @@ public protocol AuthenticatorProtocol: AnyObject, Sendable {
     /**
      * Generates a proof for the given proof request.
      *
+     * The nullifier replay guard rejects a reused nullifier unless the request's
+     * RP is listed via [`Self::set_nullifier_reuse_whitelist`].
+     *
      * # Errors
      * Returns an error if proof generation fails.
      */
@@ -1742,6 +1745,21 @@ public protocol AuthenticatorProtocol: AnyObject, Sendable {
      * Returns a network error if the gateway request fails.
      */
     func revertRecoveryAgentUpdate() async throws  -> String
+    
+    /**
+     * Replaces the set of RPs allowed to reuse a nullifier (WIP-113 RP whitelist).
+     *
+     * Proofs for these RPs may reuse a nullifier any number of times. The set is
+     * empty by default and is not persisted.
+     *
+     * # Arguments
+     * * `rp_ids` — RP IDs in their `rp_<16 hex chars>` form.
+     *
+     * # Errors
+     * Returns [`WalletKitError::InvalidInput`] if any RP ID is malformed; the
+     * current set is then left unchanged.
+     */
+    func setNullifierReuseWhitelist(rpIds: [String]) throws 
     
     /**
      * Updates the holder's recovery agent (WIP-102).
@@ -2093,6 +2111,9 @@ open func generateCredentialBlindingFactorRemote(issuerSchemaId: UInt64)async th
     /**
      * Generates a proof for the given proof request.
      *
+     * The nullifier replay guard rejects a reused nullifier unless the request's
+     * RP is listed via [`Self::set_nullifier_reuse_whitelist`].
+     *
      * # Errors
      * Returns an error if proof generation fails.
      */
@@ -2406,6 +2427,28 @@ open func revertRecoveryAgentUpdate()async throws  -> String  {
             liftFunc: FfiConverterString.lift,
             errorHandler: FfiConverterTypeWalletKitError_lift
         )
+}
+    
+    /**
+     * Replaces the set of RPs allowed to reuse a nullifier (WIP-113 RP whitelist).
+     *
+     * Proofs for these RPs may reuse a nullifier any number of times. The set is
+     * empty by default and is not persisted.
+     *
+     * # Arguments
+     * * `rp_ids` — RP IDs in their `rp_<16 hex chars>` form.
+     *
+     * # Errors
+     * Returns [`WalletKitError::InvalidInput`] if any RP ID is malformed; the
+     * current set is then left unchanged.
+     */
+open func setNullifierReuseWhitelist(rpIds: [String])throws   {try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_authenticator_set_nullifier_reuse_whitelist(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceString.lower(rpIds),uniffiCallStatus
+    )
+}
 }
     
     /**
@@ -18562,7 +18605,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_authenticator_generate_credential_blinding_factor_remote() != 52918) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_generate_proof() != 58185) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_generate_proof() != 57716) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_authenticator_get_authenticator_pubkeys() != 32287) {
@@ -18596,6 +18639,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_authenticator_revert_recovery_agent_update() != 43256) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_authenticator_set_nullifier_reuse_whitelist() != 21244) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_authenticator_update_recovery_agent() != 20545) {

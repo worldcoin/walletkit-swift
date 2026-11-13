@@ -1579,7 +1579,8 @@ public protocol AuthenticatorProtocol: AnyObject, Sendable {
      * RP is listed via [`Self::set_nullifier_reuse_whitelist`].
      *
      * # Errors
-     * Returns an error if proof generation fails.
+     * Returns [`WalletKitError::InvalidInput`] for a Proof of Embedding Similarity request, which
+     * this flow does not prove, and an error if proof generation fails.
      */
     func generateProof(proofRequest: ProofRequest, now: UInt64?) async throws  -> ProofResponse
     
@@ -2115,7 +2116,8 @@ open func generateCredentialBlindingFactorRemote(issuerSchemaId: UInt64)async th
      * RP is listed via [`Self::set_nullifier_reuse_whitelist`].
      *
      * # Errors
-     * Returns an error if proof generation fails.
+     * Returns [`WalletKitError::InvalidInput`] for a Proof of Embedding Similarity request, which
+     * this flow does not prove, and an error if proof generation fails.
      */
 open func generateProof(proofRequest: ProofRequest, now: UInt64?)async throws  -> ProofResponse  {
     return
@@ -4991,28 +4993,28 @@ public func FfiConverterTypeFieldElement_lower(_ value: FieldElement) -> UInt64 
 /**
  * The release manifests of one Engine Provider that `WalletKit` trusts.
  *
- * Built from the provider's metadata file (`/.well-known/world-id-engine.json`). The host decides
- * which provider to trust and how to obtain its metadata, for example by fetching it from a
- * pinned domain or bundling it with the app. Only listed manifests whose signature verifies
- * under an `active` release key of the same metadata are kept. Removing a manifest or retiring
- * or revoking its key takes effect with the next metadata the host supplies.
+ * Built from the provider's metadata file (`<iss>/.well-known/world-id-engine.json`). The host
+ * decides which provider to trust and how to obtain its metadata, for example by fetching it from
+ * the pinned `iss` or bundling it with the app. Only listed manifests that name `iss` and whose
+ * signature verifies under an `active` release key of the same metadata are kept. Removing a
+ * manifest or retiring or revoking its key takes effect with the next metadata the host supplies.
  */
 public protocol FlamingoEngineProviderProtocol: AnyObject, Sendable {
     
     /**
-     * The provider's stable identifier.
+     * The Engine Provider's issuer URL.
      */
-    func providerId()  -> String
+    func iss()  -> String
     
 }
 /**
  * The release manifests of one Engine Provider that `WalletKit` trusts.
  *
- * Built from the provider's metadata file (`/.well-known/world-id-engine.json`). The host decides
- * which provider to trust and how to obtain its metadata, for example by fetching it from a
- * pinned domain or bundling it with the app. Only listed manifests whose signature verifies
- * under an `active` release key of the same metadata are kept. Removing a manifest or retiring
- * or revoking its key takes effect with the next metadata the host supplies.
+ * Built from the provider's metadata file (`<iss>/.well-known/world-id-engine.json`). The host
+ * decides which provider to trust and how to obtain its metadata, for example by fetching it from
+ * the pinned `iss` or bundling it with the app. Only listed manifests that name `iss` and whose
+ * signature verifies under an `active` release key of the same metadata are kept. Removing a
+ * manifest or retiring or revoking its key takes effect with the next metadata the host supplies.
  */
 open class FlamingoEngineProvider: FlamingoEngineProviderProtocol, @unchecked Sendable {
     fileprivate let handle: UInt64
@@ -5066,18 +5068,21 @@ open class FlamingoEngineProvider: FlamingoEngineProviderProtocol, @unchecked Se
 
     
     /**
-     * Parses an Engine Provider metadata file and verifies its listed release manifests.
+     * Parses the metadata file of the Engine Provider `iss`, the `https` URL it was fetched for,
+     * and verifies its listed release manifests.
      *
      * # Errors
      *
      * Returns [`FlamingoError::Configuration`] if the metadata is not a version 1 metadata file,
-     * or if none of its listed manifests verifies under one of its active release keys.
+     * or if none of its listed manifests names `iss` and verifies under one of its active release
+     * keys.
      */
-public static func fromMetadata(metadataJson: Data)throws  -> FlamingoEngineProvider  {
+public static func fromMetadata(iss: String, metadataJson: Data)throws  -> FlamingoEngineProvider  {
     return try  FfiConverterTypeFlamingoEngineProvider_lift(try rustCallWithError(FfiConverterTypeFlamingoError_lift) {
         uniffiCallStatus in
         FfiConverterByRefBytes.lower(metadataJson) { metadataJsonFb in
     uniffi_walletkit_core_fn_constructor_flamingoengineprovider_from_metadata(
+        FfiConverterString.lower(iss),
         metadataJsonFb,uniffiCallStatus
     )
         }
@@ -5087,12 +5092,12 @@ public static func fromMetadata(metadataJson: Data)throws  -> FlamingoEngineProv
 
     
     /**
-     * The provider's stable identifier.
+     * The Engine Provider's issuer URL.
      */
-open func providerId() -> String  {
+open func iss() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
         uniffiCallStatus in
-    uniffi_walletkit_core_fn_method_flamingoengineprovider_provider_id(
+    uniffi_walletkit_core_fn_method_flamingoengineprovider_iss(
             self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
@@ -7309,9 +7314,33 @@ public func FfiConverterTypeProofOutput_lower(_ value: ProofOutput) -> UInt64 {
 public protocol ProofRequestProtocol: AnyObject, Sendable {
     
     /**
+     * Returns the parameters of a Proof of Embedding Similarity request (WIP-202 §4.4), or
+     * `None` for any other proof type.
+     */
+    func embeddingSimilarity()  -> EmbeddingSimilarityRequest?
+    
+    /**
      * Returns the unique identifier for this request.
      */
     func id()  -> String
+    
+    /**
+     * Returns whether `challenge` is the image this request's `challenge_hash` commits to,
+     * `R(SHA-256(challenge))`. Always `false` for requests that are not a Proof of Embedding
+     * Similarity.
+     *
+     * The RP signs only the hash, so the challenge image it sends alongside must be checked
+     * before it is used.
+     */
+    func matchesChallenge(challenge: Data)  -> Bool
+    
+    /**
+     * Returns which kind of proof the RP requests.
+     *
+     * A [`ProofRequestType::EmbeddingSimilarity`] request is not proven by
+     * `Authenticator::generate_proof`; it needs a Flamingo Token first.
+     */
+    func proofType()  -> ProofRequestType
     
     /**
      * Serializes the proof request to a JSON string.
@@ -7400,12 +7429,58 @@ public static func fromJson(json: String)throws  -> ProofRequest  {
 
     
     /**
+     * Returns the parameters of a Proof of Embedding Similarity request (WIP-202 §4.4), or
+     * `None` for any other proof type.
+     */
+open func embeddingSimilarity() -> EmbeddingSimilarityRequest?  {
+    return try!  FfiConverterOptionTypeEmbeddingSimilarityRequest.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_proofrequest_embedding_similarity(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
      * Returns the unique identifier for this request.
      */
 open func id() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
         uniffiCallStatus in
     uniffi_walletkit_core_fn_method_proofrequest_id(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Returns whether `challenge` is the image this request's `challenge_hash` commits to,
+     * `R(SHA-256(challenge))`. Always `false` for requests that are not a Proof of Embedding
+     * Similarity.
+     *
+     * The RP signs only the hash, so the challenge image it sends alongside must be checked
+     * before it is used.
+     */
+open func matchesChallenge(challenge: Data) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_proofrequest_matches_challenge(
+            self.uniffiCloneHandle(),
+        FfiConverterData.lower(challenge),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Returns which kind of proof the RP requests.
+     *
+     * A [`ProofRequestType::EmbeddingSimilarity`] request is not proven by
+     * `Authenticator::generate_proof`; it needs a Flamingo Token first.
+     */
+open func proofType() -> ProofRequestType  {
+    return try!  FfiConverterTypeProofRequestType_lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_proofrequest_proof_type(
             self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
@@ -8748,12 +8823,12 @@ public func FfiConverterTypeRequestDigestSigner_lower(_ value: RequestDigestSign
 
 
 /**
- * Supplies authentication material before each WebSocket connection or reassignment.
+ * Supplies authentication material before each authenticated request or WebSocket connection.
  *
  * The host owns token acquisition, refresh, audience policy, and hardware-key lifecycle.
  * It selects the audience when configuring the provider; `WalletKit` does not decode the
  * token or receive the audience or key identifier. Preparing and signing share a 30-second
- * deadline in the matcher.
+ * deadline for each authentication attempt.
  */
 public protocol RequestIntegrityProvider: AnyObject, Sendable {
     
@@ -8767,12 +8842,12 @@ public protocol RequestIntegrityProvider: AnyObject, Sendable {
     
 }
 /**
- * Supplies authentication material before each WebSocket connection or reassignment.
+ * Supplies authentication material before each authenticated request or WebSocket connection.
  *
  * The host owns token acquisition, refresh, audience policy, and hardware-key lifecycle.
  * It selects the audience when configuring the provider; `WalletKit` does not decode the
  * token or receive the audience or key identifier. Preparing and signing share a 30-second
- * deadline in the matcher.
+ * deadline for each authentication attempt.
  */
 open class RequestIntegrityProviderImpl: RequestIntegrityProvider, @unchecked Sendable {
     fileprivate let handle: UInt64
@@ -11405,10 +11480,81 @@ public func FfiConverterTypeCredentialRecord_lower(_ value: CredentialRecord) ->
 
 
 /**
+ * The parameters of a Proof of Embedding Similarity request (WIP-202 §4.4).
+ */
+public struct EmbeddingSimilarityRequest {
+    /**
+     * `R(SHA-256(challenge))` of the challenge image the RP chose; see
+     * [`ProofRequest::matches_challenge`].
+     */
+    public var challengeHash: FieldElement
+    /**
+     * Whether the RP requires the proof to come with a verified Authenticator Assertion Token.
+     */
+    public var aatRequired: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * `R(SHA-256(challenge))` of the challenge image the RP chose; see
+         * [`ProofRequest::matches_challenge`].
+         */challengeHash: FieldElement, 
+        /**
+         * Whether the RP requires the proof to come with a verified Authenticator Assertion Token.
+         */aatRequired: Bool) {
+        self.challengeHash = challengeHash
+        self.aatRequired = aatRequired
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension EmbeddingSimilarityRequest: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEmbeddingSimilarityRequest: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EmbeddingSimilarityRequest {
+        return
+            try EmbeddingSimilarityRequest(
+                challengeHash: FfiConverterTypeFieldElement.read(from: &buf), 
+                aatRequired: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: EmbeddingSimilarityRequest, into buf: inout [UInt8]) {
+        FfiConverterTypeFieldElement.write(value.challengeHash, into: &buf)
+        FfiConverterBool.write(value.aatRequired, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEmbeddingSimilarityRequest_lift(_ buf: RustBuffer) throws -> EmbeddingSimilarityRequest {
+    return try FfiConverterTypeEmbeddingSimilarityRequest.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEmbeddingSimilarityRequest_lower(_ value: EmbeddingSimilarityRequest) -> RustBuffer {
+    return FfiConverterTypeEmbeddingSimilarityRequest.lower(value)
+}
+
+
+/**
  * One Engine configuration a Relying Party accepts.
  *
  * The RP offers these tuples in order of preference. `WalletKit` runs the first one whose release
- * manifest the trusted Engine Provider signed and the Verifier has loaded.
+ * manifest the trusted Engine Provider signed and the assigned enclave attests.
  */
 public struct FlamingoEngineConfiguration: Equatable, Hashable {
     /**
@@ -11416,9 +11562,9 @@ public struct FlamingoEngineConfiguration: Equatable, Hashable {
      */
     public var releaseHash: Data
     /**
-     * Engine-defined pipeline, nonzero.
+     * Pipeline identifier defined by the release manifest, nonzero.
      */
-    public var pipeline: UInt16
+    public var pipelineId: UInt16
     /**
      * Matching strictness level defined by the release manifest.
      */
@@ -11431,13 +11577,13 @@ public struct FlamingoEngineConfiguration: Equatable, Hashable {
          * `SHA-256` of the release manifest's JWS Payload, 32 bytes.
          */releaseHash: Data, 
         /**
-         * Engine-defined pipeline, nonzero.
-         */pipeline: UInt16, 
+         * Pipeline identifier defined by the release manifest, nonzero.
+         */pipelineId: UInt16, 
         /**
          * Matching strictness level defined by the release manifest.
          */matchStrictness: UInt8) {
         self.releaseHash = releaseHash
-        self.pipeline = pipeline
+        self.pipelineId = pipelineId
         self.matchStrictness = matchStrictness
     }
 
@@ -11458,14 +11604,14 @@ public struct FfiConverterTypeFlamingoEngineConfiguration: FfiConverterRustBuffe
         return
             try FlamingoEngineConfiguration(
                 releaseHash: FfiConverterData.read(from: &buf), 
-                pipeline: FfiConverterUInt16.read(from: &buf), 
+                pipelineId: FfiConverterUInt16.read(from: &buf), 
                 matchStrictness: FfiConverterUInt8.read(from: &buf)
         )
     }
 
     public static func write(_ value: FlamingoEngineConfiguration, into buf: inout [UInt8]) {
         FfiConverterData.write(value.releaseHash, into: &buf)
-        FfiConverterUInt16.write(value.pipeline, into: &buf)
+        FfiConverterUInt16.write(value.pipelineId, into: &buf)
         FfiConverterUInt8.write(value.matchStrictness, into: &buf)
     }
 }
@@ -11558,10 +11704,10 @@ public func FfiConverterTypeFlamingoEntry_lower(_ value: FlamingoEntry) -> RustB
 /**
  * A WIP-201 request: the Relying Party's binding and offer, and the Engine inputs.
  *
- * The Verifier interprets none of `entries`, `compare` or `hints`. The chosen pipeline gives each
- * `compare` position its role, and its release manifest describes the layout. A Proof of Embedding
- * Similarity (WIP-202) requires the Credential image, the live capture and the challenge at
- * `compare` positions 0, 1 and 2.
+ * The Verifier interprets none of `entries`, `compare` or `hints`. The chosen pipeline's release
+ * manifest lists its inputs, and `pipeline_inputs` names the entry for each of them. A Proof of
+ * Embedding Similarity (WIP-202) requires the Credential image, the live capture and the
+ * challenge at `compare` positions 0, 1 and 2.
  *
  * Entry buffers move into preparation; the selected payload is then encoded as canonical CBOR.
  */
@@ -11582,6 +11728,11 @@ public struct FlamingoMatchRequest {
      * Inputs to the Engine, at most 8.
      */
     public var entries: [FlamingoEntry]
+    /**
+     * Distinct indices into `entries`, one per input of the chosen pipeline, in the order its
+     * release manifest lists them.
+     */
+    public var pipelineInputs: Data
     /**
      * Two to four distinct indices into `entries`; position `k` becomes `compared_entry_hash_k`.
      */
@@ -11607,6 +11758,10 @@ public struct FlamingoMatchRequest {
          * Inputs to the Engine, at most 8.
          */entries: [FlamingoEntry], 
         /**
+         * Distinct indices into `entries`, one per input of the chosen pipeline, in the order its
+         * release manifest lists them.
+         */pipelineInputs: Data, 
+        /**
          * Two to four distinct indices into `entries`; position `k` becomes `compared_entry_hash_k`.
          */compare: Data, 
         /**
@@ -11616,6 +11771,7 @@ public struct FlamingoMatchRequest {
         self.nonce = nonce
         self.offeredConfigurations = offeredConfigurations
         self.entries = entries
+        self.pipelineInputs = pipelineInputs
         self.compare = compare
         self.hints = hints
     }
@@ -11640,6 +11796,7 @@ public struct FfiConverterTypeFlamingoMatchRequest: FfiConverterRustBuffer {
                 nonce: FfiConverterTypeFieldElement.read(from: &buf), 
                 offeredConfigurations: FfiConverterSequenceTypeFlamingoEngineConfiguration.read(from: &buf), 
                 entries: FfiConverterSequenceTypeFlamingoEntry.read(from: &buf), 
+                pipelineInputs: FfiConverterData.read(from: &buf), 
                 compare: FfiConverterData.read(from: &buf), 
                 hints: FfiConverterData.read(from: &buf)
         )
@@ -11650,6 +11807,7 @@ public struct FfiConverterTypeFlamingoMatchRequest: FfiConverterRustBuffer {
         FfiConverterTypeFieldElement.write(value.nonce, into: &buf)
         FfiConverterSequenceTypeFlamingoEngineConfiguration.write(value.offeredConfigurations, into: &buf)
         FfiConverterSequenceTypeFlamingoEntry.write(value.entries, into: &buf)
+        FfiConverterData.write(value.pipelineInputs, into: &buf)
         FfiConverterData.write(value.compare, into: &buf)
         FfiConverterData.write(value.hints, into: &buf)
     }
@@ -11838,6 +11996,95 @@ public func FfiConverterTypeManageRecoveryBindingRequest_lift(_ buf: RustBuffer)
 #endif
 public func FfiConverterTypeManageRecoveryBindingRequest_lower(_ value: ManageRecoveryBindingRequest) -> RustBuffer {
     return FfiConverterTypeManageRecoveryBindingRequest.lower(value)
+}
+
+
+/**
+ * The challenge returned by the issuer, preserving its wire representation.
+ */
+public struct OwnershipProofChallenge: Equatable, Hashable {
+    /**
+     * Opaque handle to submit with the proof.
+     */
+    public var challengeId: String
+    /**
+     * Validated hex field element; parse with `FieldElement::try_from_hex_string`.
+     */
+    public var nonce: String
+    /**
+     * The operation this challenge authorizes.
+     */
+    public var challengeType: String
+    /**
+     * Advisory RFC 3339 expiry supplied by the server.
+     */
+    public var expiresAt: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Opaque handle to submit with the proof.
+         */challengeId: String, 
+        /**
+         * Validated hex field element; parse with `FieldElement::try_from_hex_string`.
+         */nonce: String, 
+        /**
+         * The operation this challenge authorizes.
+         */challengeType: String, 
+        /**
+         * Advisory RFC 3339 expiry supplied by the server.
+         */expiresAt: String) {
+        self.challengeId = challengeId
+        self.nonce = nonce
+        self.challengeType = challengeType
+        self.expiresAt = expiresAt
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension OwnershipProofChallenge: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeOwnershipProofChallenge: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> OwnershipProofChallenge {
+        return
+            try OwnershipProofChallenge(
+                challengeId: FfiConverterString.read(from: &buf), 
+                nonce: FfiConverterString.read(from: &buf), 
+                challengeType: FfiConverterString.read(from: &buf), 
+                expiresAt: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: OwnershipProofChallenge, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.challengeId, into: &buf)
+        FfiConverterString.write(value.nonce, into: &buf)
+        FfiConverterString.write(value.challengeType, into: &buf)
+        FfiConverterString.write(value.expiresAt, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeOwnershipProofChallenge_lift(_ buf: RustBuffer) throws -> OwnershipProofChallenge {
+    return try FfiConverterTypeOwnershipProofChallenge.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeOwnershipProofChallenge_lower(_ value: OwnershipProofChallenge) -> RustBuffer {
+    return FfiConverterTypeOwnershipProofChallenge.lower(value)
 }
 
 
@@ -12380,7 +12627,7 @@ public func FfiConverterTypeReplayGuardResult_lower(_ value: ReplayGuardResult) 
  */
 public struct RequestIntegritySession {
     /**
-     * A valid integrity token for the host-selected Flamingo audience.
+     * A valid integrity token for the host-selected audience.
      */
     public var token: String
     /**
@@ -12396,7 +12643,7 @@ public struct RequestIntegritySession {
     // declare one manually.
     public init(
         /**
-         * A valid integrity token for the host-selected Flamingo audience.
+         * A valid integrity token for the host-selected audience.
          */token: String, 
         /**
          * Encoding expected from the native signer.
@@ -14841,13 +15088,14 @@ public enum FlamingoMatchRejection: Equatable, Hashable {
      */
     case malformedInputs
     /**
-     * The Verifier has not loaded the requested release.
-     */
-    case unsupportedRelease
-    /**
-     * The request exceeds the selected pipeline's byte limit.
+     * The request exceeds the Verifier's request size limit.
      */
     case requestTooLarge
+    /**
+     * The request expired before the Verifier received it, or expires too far ahead of the
+     * Verifier's clock.
+     */
+    case expired
     /**
      * This audience and nonce have already been used.
      */
@@ -14939,9 +15187,9 @@ public struct FfiConverterTypeFlamingoMatchRejection: FfiConverterRustBuffer {
         
         case 1: return .malformedInputs
         
-        case 2: return .unsupportedRelease
+        case 2: return .requestTooLarge
         
-        case 3: return .requestTooLarge
+        case 3: return .expired
         
         case 4: return .replayed
         
@@ -14979,11 +15227,11 @@ public struct FfiConverterTypeFlamingoMatchRejection: FfiConverterRustBuffer {
             writeInt(&buf, Int32(1))
         
         
-        case .unsupportedRelease:
+        case .requestTooLarge:
             writeInt(&buf, Int32(2))
         
         
-        case .requestTooLarge:
+        case .expired:
             writeInt(&buf, Int32(3))
         
         
@@ -15463,6 +15711,91 @@ public func FfiConverterTypeLogLevel_lift(_ buf: RustBuffer) throws -> LogLevel 
 #endif
 public func FfiConverterTypeLogLevel_lower(_ value: LogLevel) -> RustBuffer {
     return FfiConverterTypeLogLevel.lower(value)
+}
+
+
+
+/**
+ * The kind of proof a [`ProofRequest`] asks for.
+ */
+
+public enum ProofRequestType: Equatable, Hashable {
+    
+    /**
+     * A uniqueness proof scoped by the RP's action.
+     */
+    case uniqueness
+    /**
+     * A session proof.
+     */
+    case session
+    /**
+     * A WIP-202 Proof of Embedding Similarity.
+     */
+    case embeddingSimilarity
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension ProofRequestType: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeProofRequestType: FfiConverterRustBuffer {
+    typealias SwiftType = ProofRequestType
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ProofRequestType {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .uniqueness
+        
+        case 2: return .session
+        
+        case 3: return .embeddingSimilarity
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: ProofRequestType, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .uniqueness:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .session:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .embeddingSimilarity:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProofRequestType_lift(_ buf: RustBuffer) throws -> ProofRequestType {
+    return try FfiConverterTypeProofRequestType.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeProofRequestType_lower(_ value: ProofRequestType) -> RustBuffer {
+    return FfiConverterTypeProofRequestType.lower(value)
 }
 
 
@@ -17741,6 +18074,30 @@ fileprivate struct FfiConverterOptionTypeCredential: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionTypeEmbeddingSimilarityRequest: FfiConverterRustBuffer {
+    typealias SwiftType = EmbeddingSimilarityRequest?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeEmbeddingSimilarityRequest.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeEmbeddingSimilarityRequest.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionTypeActivityFailureReason: FfiConverterRustBuffer {
     typealias SwiftType = ActivityFailureReason?
 
@@ -18488,6 +18845,29 @@ public func validateAuthenticatorPubkey(authenticatorPubkey: String)throws  -> S
 })
 }
 /**
+ * Fetches a v4 challenge using a host-provided attestation token and hardware signer.
+ *
+ * The provider must be configured for the challenge service's audience.
+ * The host supplies the challenge type; `WalletKit` does not validate its value.
+ *
+ * # Errors
+ * Returns [`WalletKitError`] on signing, network, HTTP, or response-validation failure.
+ */
+public func fetchOwnershipProofChallenge(environment: Environment, challengeType: String, integrityProvider: RequestIntegrityProvider, userAgentBuilder: UserAgentBuilder)async throws  -> OwnershipProofChallenge  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_func_fetch_ownership_proof_challenge(FfiConverterTypeEnvironment_lower(environment),FfiConverterString.lower(challengeType),FfiConverterTypeRequestIntegrityProvider_lower(integrityProvider),FfiConverterTypeUserAgentBuilder_lower(userAgentBuilder)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeOwnershipProofChallenge_lift,
+            errorHandler: FfiConverterTypeWalletKitError_lift
+        )
+}
+/**
  * Emits a message at the given level through `WalletKit`'s tracing pipeline.
  *
  * Useful for verifying that the logging bridge is wired up correctly.
@@ -18581,6 +18961,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_func_validate_authenticator_pubkey() != 8057) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_func_fetch_ownership_proof_challenge() != 42738) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_func_emit_log() != 15829) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -18605,7 +18988,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_authenticator_generate_credential_blinding_factor_remote() != 52918) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_authenticator_generate_proof() != 57716) {
+    if (uniffi_walletkit_core_checksum_method_authenticator_generate_proof() != 57652) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_authenticator_get_authenticator_pubkeys() != 32287) {
@@ -18704,13 +19087,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_flamingomatcher_with_measurements() != 63635) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_method_flamingoengineprovider_provider_id() != 52035) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_walletkit_core_checksum_method_requestdigestsigner_sign_digest() != 33739) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_walletkit_core_checksum_method_requestintegrityprovider_prepare() != 10115) {
+    if (uniffi_walletkit_core_checksum_method_flamingoengineprovider_iss() != 12278) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_recoverybindingmanager_bind_recovery_agent() != 11385) {
@@ -18812,7 +19189,22 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_method_registrationresult_pubkey_id() != 18122) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_walletkit_core_checksum_method_requestdigestsigner_sign_digest() != 35875) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_requestintegrityprovider_prepare() != 23933) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_proofrequest_embedding_similarity() != 29305) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_walletkit_core_checksum_method_proofrequest_id() != 61200) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_proofrequest_matches_challenge() != 52845) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_proofrequest_proof_type() != 15724) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_proofrequest_to_json() != 18742) {
@@ -19055,10 +19447,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_walletkit_core_checksum_constructor_flamingomatcher_new() != 34104) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_flamingomatcher_new_attested() != 18504) {
+    if (uniffi_walletkit_core_checksum_constructor_flamingomatcher_new_attested() != 28819) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_walletkit_core_checksum_constructor_flamingoengineprovider_from_metadata() != 32898) {
+    if (uniffi_walletkit_core_checksum_constructor_flamingoengineprovider_from_metadata() != 6459) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_constructor_recoverybindingmanager_new() != 37272) {

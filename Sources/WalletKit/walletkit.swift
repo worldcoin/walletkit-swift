@@ -1784,6 +1784,36 @@ public protocol AuthenticatorProtocol: AnyObject, Sendable {
     func updateRecoveryAgent(newRecoveryAgent: String) async throws  -> String
     
     /**
+     * Generates a Proof of Embedding Similarity (WIP-202) for `proof_request`.
+     *
+     * If `billing_contract` bills the request's RP, the World ID first registers with it
+     * (WIP-107), unless a registration is cached. `matcher` then compares the Credential image,
+     * the live capture and the challenge on an attested Flamingo Verifier, and the proof is
+     * generated from its token. The session's `r` seed is cached like [`Self::generate_proof`]'s.
+     *
+     * # Arguments
+     * * `proof_request` — the RP's Proof of Embedding Similarity request.
+     * * `matcher` — a Flamingo Verifier client with a trusted Engine Provider.
+     * * `inputs` — the PCP's Credential image and `hashes.json`, the live capture and the
+     * challenge.
+     * * `match_strictness` — the Authenticator Provider's match strictness level, which the
+     * attested release must offer.
+     * * `billing_contract` — the environment's WIP-107 Billing Contract (see
+     * `Environment::billing_contract_address`), or `None` to bill no RP.
+     * * `now` — the current Unix time in seconds; the system clock if `None`.
+     *
+     * # Errors
+     * - [`WalletKitError::InvalidInput`] if the request is not a Proof of Embedding Similarity
+     * request or `billing_contract` is not an address.
+     * - [`WalletKitError::UnfulfillableRequest`] if no stored, unexpired credential is the one the
+     * request asks for. This is checked before any network call.
+     * - [`WalletKitError::BillingCapacityExhausted`] and other errors of the billing registration.
+     * - [`WalletKitError::Flamingo`] if the Flamingo exchange fails.
+     * - Other errors if the inclusion proof, the OPRF Nodes or proof generation fail.
+     */
+    func generateEmbeddingSimilarityProof(proofRequest: ProofRequest, matcher: FlamingoMatcher, inputs: EmbeddingSimilarityInputs, matchStrictness: UInt8, billingContract: String?, now: UInt64?) async throws  -> EmbeddingSimilarityOutcome
+    
+    /**
      * Permanently destroys all credential storage data.
      *
      * Removes the encryption keys, vault database, and cache database.
@@ -2484,6 +2514,50 @@ open func updateRecoveryAgent(newRecoveryAgent: String)async throws  -> String  
             completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
             freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
             liftFunc: FfiConverterString.lift,
+            errorHandler: FfiConverterTypeWalletKitError_lift
+        )
+}
+    
+    /**
+     * Generates a Proof of Embedding Similarity (WIP-202) for `proof_request`.
+     *
+     * If `billing_contract` bills the request's RP, the World ID first registers with it
+     * (WIP-107), unless a registration is cached. `matcher` then compares the Credential image,
+     * the live capture and the challenge on an attested Flamingo Verifier, and the proof is
+     * generated from its token. The session's `r` seed is cached like [`Self::generate_proof`]'s.
+     *
+     * # Arguments
+     * * `proof_request` — the RP's Proof of Embedding Similarity request.
+     * * `matcher` — a Flamingo Verifier client with a trusted Engine Provider.
+     * * `inputs` — the PCP's Credential image and `hashes.json`, the live capture and the
+     * challenge.
+     * * `match_strictness` — the Authenticator Provider's match strictness level, which the
+     * attested release must offer.
+     * * `billing_contract` — the environment's WIP-107 Billing Contract (see
+     * `Environment::billing_contract_address`), or `None` to bill no RP.
+     * * `now` — the current Unix time in seconds; the system clock if `None`.
+     *
+     * # Errors
+     * - [`WalletKitError::InvalidInput`] if the request is not a Proof of Embedding Similarity
+     * request or `billing_contract` is not an address.
+     * - [`WalletKitError::UnfulfillableRequest`] if no stored, unexpired credential is the one the
+     * request asks for. This is checked before any network call.
+     * - [`WalletKitError::BillingCapacityExhausted`] and other errors of the billing registration.
+     * - [`WalletKitError::Flamingo`] if the Flamingo exchange fails.
+     * - Other errors if the inclusion proof, the OPRF Nodes or proof generation fail.
+     */
+open func generateEmbeddingSimilarityProof(proofRequest: ProofRequest, matcher: FlamingoMatcher, inputs: EmbeddingSimilarityInputs, matchStrictness: UInt8, billingContract: String?, now: UInt64?)async throws  -> EmbeddingSimilarityOutcome  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_walletkit_core_fn_method_authenticator_generate_embedding_similarity_proof(
+                        self.uniffiCloneHandle(),FfiConverterTypeProofRequest_lower(proofRequest),FfiConverterTypeFlamingoMatcher_lower(matcher),FfiConverterTypeEmbeddingSimilarityInputs_lower(inputs),FfiConverterUInt8.lower(matchStrictness),FfiConverterOptionString.lower(billingContract),FfiConverterOptionUInt64.lower(now)
+                )
+            },
+            pollFunc: ffi_walletkit_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_walletkit_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_walletkit_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeEmbeddingSimilarityOutcome_lift,
             errorHandler: FfiConverterTypeWalletKitError_lift
         )
 }
@@ -10975,6 +11049,11 @@ public struct ActivityEntry: Equatable, Hashable {
      * Present only when `outcome` is `Failed`.
      */
     public var failureReason: ActivityFailureReason?
+    /**
+     * Optional diagnostic challenge ID. Stored locally with the activity and
+     * excluded from vault backups. Hosts must keep it out of logs.
+     */
+    public var challengeId: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -11006,7 +11085,11 @@ public struct ActivityEntry: Equatable, Hashable {
          */issuerSchemaIds: [UInt64], 
         /**
          * Present only when `outcome` is `Failed`.
-         */failureReason: ActivityFailureReason?) {
+         */failureReason: ActivityFailureReason?, 
+        /**
+         * Optional diagnostic challenge ID. Stored locally with the activity and
+         * excluded from vault backups. Hosts must keep it out of logs.
+         */challengeId: String? = nil) {
         self.id = id
         self.rpId = rpId
         self.appIdentifier = appIdentifier
@@ -11016,6 +11099,7 @@ public struct ActivityEntry: Equatable, Hashable {
         self.outcome = outcome
         self.issuerSchemaIds = issuerSchemaIds
         self.failureReason = failureReason
+        self.challengeId = challengeId
     }
 
     
@@ -11042,7 +11126,8 @@ public struct FfiConverterTypeActivityEntry: FfiConverterRustBuffer {
                 timestamp: FfiConverterOptionUInt64.read(from: &buf), 
                 outcome: FfiConverterTypeActivityOutcome.read(from: &buf), 
                 issuerSchemaIds: FfiConverterSequenceUInt64.read(from: &buf), 
-                failureReason: FfiConverterOptionTypeActivityFailureReason.read(from: &buf)
+                failureReason: FfiConverterOptionTypeActivityFailureReason.read(from: &buf), 
+                challengeId: FfiConverterOptionString.read(from: &buf)
         )
     }
 
@@ -11056,6 +11141,7 @@ public struct FfiConverterTypeActivityEntry: FfiConverterRustBuffer {
         FfiConverterTypeActivityOutcome.write(value.outcome, into: &buf)
         FfiConverterSequenceUInt64.write(value.issuerSchemaIds, into: &buf)
         FfiConverterOptionTypeActivityFailureReason.write(value.failureReason, into: &buf)
+        FfiConverterOptionString.write(value.challengeId, into: &buf)
     }
 }
 
@@ -11476,6 +11562,98 @@ public func FfiConverterTypeCredentialRecord_lift(_ buf: RustBuffer) throws -> C
 #endif
 public func FfiConverterTypeCredentialRecord_lower(_ value: CredentialRecord) -> RustBuffer {
     return FfiConverterTypeCredentialRecord.lower(value)
+}
+
+
+/**
+ * What the app supplies for a Proof of Embedding Similarity, besides the request.
+ *
+ * `WalletKit` keeps no Personal Custody Package, so the app reads the Credential image and its
+ * `hashes.json` from it for each proof.
+ */
+public struct EmbeddingSimilarityInputs: Equatable, Hashable {
+    /**
+     * The PCP thumbnail that `hashes_json` lists.
+     */
+    public var credentialImage: Data
+    /**
+     * The PCP's Orb-signed `hashes.json`, to which the `PoH` Credential's claim 0 commits.
+     */
+    public var hashesJson: Data
+    /**
+     * The live capture.
+     */
+    public var liveCapture: Data
+    /**
+     * The RP's challenge image, which must hash to the request's `challenge_hash`.
+     */
+    public var challenge: Data
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The PCP thumbnail that `hashes_json` lists.
+         */credentialImage: Data, 
+        /**
+         * The PCP's Orb-signed `hashes.json`, to which the `PoH` Credential's claim 0 commits.
+         */hashesJson: Data, 
+        /**
+         * The live capture.
+         */liveCapture: Data, 
+        /**
+         * The RP's challenge image, which must hash to the request's `challenge_hash`.
+         */challenge: Data) {
+        self.credentialImage = credentialImage
+        self.hashesJson = hashesJson
+        self.liveCapture = liveCapture
+        self.challenge = challenge
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension EmbeddingSimilarityInputs: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEmbeddingSimilarityInputs: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EmbeddingSimilarityInputs {
+        return
+            try EmbeddingSimilarityInputs(
+                credentialImage: FfiConverterData.read(from: &buf), 
+                hashesJson: FfiConverterData.read(from: &buf), 
+                liveCapture: FfiConverterData.read(from: &buf), 
+                challenge: FfiConverterData.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: EmbeddingSimilarityInputs, into buf: inout [UInt8]) {
+        FfiConverterData.write(value.credentialImage, into: &buf)
+        FfiConverterData.write(value.hashesJson, into: &buf)
+        FfiConverterData.write(value.liveCapture, into: &buf)
+        FfiConverterData.write(value.challenge, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEmbeddingSimilarityInputs_lift(_ buf: RustBuffer) throws -> EmbeddingSimilarityInputs {
+    return try FfiConverterTypeEmbeddingSimilarityInputs.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEmbeddingSimilarityInputs_lower(_ value: EmbeddingSimilarityInputs) -> RustBuffer {
+    return FfiConverterTypeEmbeddingSimilarityInputs.lower(value)
 }
 
 
@@ -13665,6 +13843,101 @@ public func FfiConverterTypeCredentialType_lower(_ value: CredentialType) -> Rus
 
 
 /**
+ * The outcome of a Proof of Embedding Similarity.
+ */
+
+public enum EmbeddingSimilarityOutcome {
+    
+    /**
+     * The Engine passed and the proof was generated.
+     */
+    case proven(
+        /**
+         * The response for the RP.
+         */response: ProofResponse, 
+        /**
+         * Engine diagnostics, not covered by the proof.
+         */debugReport: FlamingoDebugReport
+    )
+    /**
+     * The Verifier reported a rejection, so no proof was generated.
+     */
+    case rejected(
+        /**
+         * Structured input or biometric rejection.
+         */reason: FlamingoMatchRejection, 
+        /**
+         * Engine diagnostics, if produced before rejection.
+         */debugReport: FlamingoDebugReport
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension EmbeddingSimilarityOutcome: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeEmbeddingSimilarityOutcome: FfiConverterRustBuffer {
+    typealias SwiftType = EmbeddingSimilarityOutcome
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> EmbeddingSimilarityOutcome {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .proven(response: try FfiConverterTypeProofResponse.read(from: &buf), debugReport: try FfiConverterTypeFlamingoDebugReport.read(from: &buf)
+        )
+        
+        case 2: return .rejected(reason: try FfiConverterTypeFlamingoMatchRejection.read(from: &buf), debugReport: try FfiConverterTypeFlamingoDebugReport.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: EmbeddingSimilarityOutcome, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case let .proven(response,debugReport):
+            writeInt(&buf, Int32(1))
+            FfiConverterTypeProofResponse.write(response, into: &buf)
+            FfiConverterTypeFlamingoDebugReport.write(debugReport, into: &buf)
+            
+        
+        case let .rejected(reason,debugReport):
+            writeInt(&buf, Int32(2))
+            FfiConverterTypeFlamingoMatchRejection.write(reason, into: &buf)
+            FfiConverterTypeFlamingoDebugReport.write(debugReport, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEmbeddingSimilarityOutcome_lift(_ buf: RustBuffer) throws -> EmbeddingSimilarityOutcome {
+    return try FfiConverterTypeEmbeddingSimilarityOutcome.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeEmbeddingSimilarityOutcome_lower(_ value: EmbeddingSimilarityOutcome) -> RustBuffer {
+    return FfiConverterTypeEmbeddingSimilarityOutcome.lower(value)
+}
+
+
+
+/**
  * Represents the environment in which a World ID is being presented and used.
  *
  * Each environment uses different sources of truth for the World ID credentials.
@@ -13684,6 +13957,19 @@ public enum Environment: Equatable, Hashable {
     case production
 
 
+
+    /**
+     * Returns the WIP-107 Billing Contract address for this environment, or `None` where none
+     * is deployed, so that no RP is billed.
+     */
+public func billingContractAddress() -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_environment_billing_contract_address(
+            FfiConverterTypeEnvironment_lower(self),uniffiCallStatus
+    )
+})
+}
 
     /**
      * Returns the `PoH` Recovery Agent contract address for this environment.
@@ -15117,6 +15403,17 @@ public enum FlamingoMatchRejection: Equatable, Hashable {
      */
     case aatRejected
     /**
+     * The RP is billed and the request carried no billing nullifier (WIP-107 §4.7). The
+     * World ID has already registered again and resent, so retrying at once will not help.
+     */
+    case billingNullifierRequired
+    /**
+     * The RP is billed and the Verifier holds no registration of the request's billing nullifier
+     * in an active period (WIP-107 §4.7). The World ID has already resent and registered again, so
+     * retrying at once will not help.
+     */
+    case billingUnregistered
+    /**
      * Exact malformed-input reason and the location/limit supplied by the service.
      */
     case inputRejected(
@@ -15201,19 +15498,23 @@ public struct FfiConverterTypeFlamingoMatchRejection: FfiConverterRustBuffer {
         
         case 8: return .aatRejected
         
-        case 9: return .inputRejected(reason: try FfiConverterTypeFlamingoInputFailureReason.read(from: &buf), image: try FfiConverterOptionTypeFlamingoImageRole.read(from: &buf), limitBytes: try FfiConverterOptionUInt64.read(from: &buf)
+        case 9: return .billingNullifierRequired
+        
+        case 10: return .billingUnregistered
+        
+        case 11: return .inputRejected(reason: try FfiConverterTypeFlamingoInputFailureReason.read(from: &buf), image: try FfiConverterOptionTypeFlamingoImageRole.read(from: &buf), limitBytes: try FfiConverterOptionUInt64.read(from: &buf)
         )
         
-        case 10: return .matchBelowThreshold(comparison: try FfiConverterTypeFlamingoComparison.read(from: &buf)
+        case 12: return .matchBelowThreshold(comparison: try FfiConverterTypeFlamingoComparison.read(from: &buf)
         )
         
-        case 11: return .imageRejected(image: try FfiConverterTypeFlamingoImageRole.read(from: &buf), reason: try FfiConverterTypeFlamingoImageFailureReason.read(from: &buf), target: try FfiConverterOptionTypeFlamingoValidationTarget.read(from: &buf)
+        case 13: return .imageRejected(image: try FfiConverterTypeFlamingoImageRole.read(from: &buf), reason: try FfiConverterTypeFlamingoImageFailureReason.read(from: &buf), target: try FfiConverterOptionTypeFlamingoValidationTarget.read(from: &buf)
         )
         
-        case 12: return .matchingFailed(comparison: try FfiConverterTypeFlamingoComparison.read(from: &buf)
+        case 14: return .matchingFailed(comparison: try FfiConverterTypeFlamingoComparison.read(from: &buf)
         )
         
-        case 13: return .`internal`
+        case 15: return .`internal`
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -15255,32 +15556,40 @@ public struct FfiConverterTypeFlamingoMatchRejection: FfiConverterRustBuffer {
             writeInt(&buf, Int32(8))
         
         
-        case let .inputRejected(reason,image,limitBytes):
+        case .billingNullifierRequired:
             writeInt(&buf, Int32(9))
+        
+        
+        case .billingUnregistered:
+            writeInt(&buf, Int32(10))
+        
+        
+        case let .inputRejected(reason,image,limitBytes):
+            writeInt(&buf, Int32(11))
             FfiConverterTypeFlamingoInputFailureReason.write(reason, into: &buf)
             FfiConverterOptionTypeFlamingoImageRole.write(image, into: &buf)
             FfiConverterOptionUInt64.write(limitBytes, into: &buf)
             
         
         case let .matchBelowThreshold(comparison):
-            writeInt(&buf, Int32(10))
+            writeInt(&buf, Int32(12))
             FfiConverterTypeFlamingoComparison.write(comparison, into: &buf)
             
         
         case let .imageRejected(image,reason,target):
-            writeInt(&buf, Int32(11))
+            writeInt(&buf, Int32(13))
             FfiConverterTypeFlamingoImageRole.write(image, into: &buf)
             FfiConverterTypeFlamingoImageFailureReason.write(reason, into: &buf)
             FfiConverterOptionTypeFlamingoValidationTarget.write(target, into: &buf)
             
         
         case let .matchingFailed(comparison):
-            writeInt(&buf, Int32(12))
+            writeInt(&buf, Int32(14))
             FfiConverterTypeFlamingoComparison.write(comparison, into: &buf)
             
         
         case .`internal`:
-            writeInt(&buf, Int32(13))
+            writeInt(&buf, Int32(15))
         
         }
     }
@@ -17650,6 +17959,19 @@ enum WalletKitError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError
      */
     case NotEligibleForRecovery
     /**
+     * The RP has no WIP-107 billing capacity left in any period the World ID could register
+     * for, so it cannot be billed for a Proof of Embedding Similarity until it buys more.
+     */
+    case BillingCapacityExhausted
+    /**
+     * The exchange with the Flamingo Verifier failed.
+     */
+    case Flamingo(
+        /**
+         * The Flamingo failure.
+         */error: FlamingoError
+    )
+    /**
      * An error occurred in the OHTTP privacy layer (relay, encapsulation, or framing).
      */
     case OhttpError(
@@ -17761,10 +18083,14 @@ public struct FfiConverterTypeWalletKitError: FfiConverterRustBuffer {
         case 31: return .IdentityNotFound
         case 32: return .NoSuccessfulCaptureFound
         case 33: return .NotEligibleForRecovery
-        case 34: return .OhttpError(
+        case 34: return .BillingCapacityExhausted
+        case 35: return .Flamingo(
+            error: try FfiConverterTypeFlamingoError.read(from: &buf)
+            )
+        case 36: return .OhttpError(
             error: try FfiConverterString.read(from: &buf)
             )
-        case 35: return .InvalidActionSession
+        case 37: return .InvalidActionSession
 
          default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -17924,13 +18250,22 @@ public struct FfiConverterTypeWalletKitError: FfiConverterRustBuffer {
             writeInt(&buf, Int32(33))
         
         
-        case let .OhttpError(error):
+        case .BillingCapacityExhausted:
             writeInt(&buf, Int32(34))
+        
+        
+        case let .Flamingo(error):
+            writeInt(&buf, Int32(35))
+            FfiConverterTypeFlamingoError.write(error, into: &buf)
+            
+        
+        case let .OhttpError(error):
+            writeInt(&buf, Int32(36))
             FfiConverterString.write(error, into: &buf)
             
         
         case .InvalidActionSession:
-            writeInt(&buf, Int32(35))
+            writeInt(&buf, Int32(37))
         
         }
     }
@@ -19028,6 +19363,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_authenticator_update_recovery_agent() != 20545) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_authenticator_generate_embedding_similarity_proof() != 26182) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_authenticator_destroy_storage() != 22479) {

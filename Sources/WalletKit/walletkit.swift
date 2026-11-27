@@ -3489,6 +3489,15 @@ public protocol CredentialProtocol: AnyObject, Sendable {
      */
     func sub()  -> FieldElement
     
+    /**
+     * Serializes the credential to a JSON byte blob for storage.
+     *
+     * # Errors
+     *
+     * Returns an error if serialization fails.
+     */
+    func toBytes() throws  -> Data
+    
 }
 /**
  * A wrapper around [`CoreCredential`] to enable FFI interoperability.
@@ -3644,6 +3653,22 @@ open func sub() -> FieldElement  {
     return try!  FfiConverterTypeFieldElement_lift(try! rustCall() {
         uniffiCallStatus in
     uniffi_walletkit_core_fn_method_credential_sub(
+            self.uniffiCloneHandle(),uniffiCallStatus
+    )
+})
+}
+    
+    /**
+     * Serializes the credential to a JSON byte blob for storage.
+     *
+     * # Errors
+     *
+     * Returns an error if serialization fails.
+     */
+open func toBytes()throws  -> Data  {
+    return try  FfiConverterData.lift(try rustCallWithError(FfiConverterTypeWalletKitError_lift) {
+        uniffiCallStatus in
+    uniffi_walletkit_core_fn_method_credential_to_bytes(
             self.uniffiCloneHandle(),uniffiCallStatus
     )
 })
@@ -19402,6 +19427,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_credential_sub() != 10460) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_walletkit_core_checksum_method_credential_to_bytes() != 62293) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_walletkit_core_checksum_method_fieldelement_to_bytes() != 1116) {
